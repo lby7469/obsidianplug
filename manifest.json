@@ -1,0 +1,10 @@
+{
+  "id": "GoodSync",
+  "name": "GoodSync",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "A simple Git sync helper for Obsidian vaults.",
+  "author": "Yin",
+  "authorUrl": "https://github.com/3253977320/GoodSync",
+  "isDesktopOnly": false
+}
