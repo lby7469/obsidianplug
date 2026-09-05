@@ -15,6 +15,7 @@ var H = {};
 z(H, { default: () => x });
 module.exports = M(H);
 var h = require("obsidian");
+var community = require("./community");
 function P(c, t) {
   let e = /* @__PURE__ */ Object.create(null);
   for (let r = 0; r < t.length; r++) {
@@ -132,8 +133,12 @@ var x = class extends h.Plugin {
     this.settings = { ...T, ...t || {}, state: t?.state || {}, selectedFolders: t?.selectedFolders || [], seenAnnouncementIds: t?.seenAnnouncementIds || [] }, this.settings.password = "", await this.saveSettings(), this.authPolicy = { passwordHint: "\u5BC6\u7801\u81F3\u5C11 8 \u4F4D\uFF0C\u4E14\u5FC5\u987B\u540C\u65F6\u5305\u542B\u5B57\u6BCD\u548C\u6570\u5B57\u3002", emailCodeLength: 6, emailCodeExpiresMinutes: 10 }, await this.loadAuthPolicy(), this.syncedThisSession = false, this.pendingChanges = true, this.registerObsidianProtocolHandler("notecloud-auth", (parameters) => void this.completeWebAuth(parameters)), this.addSettingTab(new E(this.app, this)), h.Platform.isMobile && this.addRibbonIcon("refresh-cw", "\u7ACB\u5373\u540C\u6B65", () => void this.sync(true)), this.status = this.addStatusBarItem(), this.status.addClass("notecloud-status"), this.status.onclick = () => void this.sync(true), this.status.addEventListener("contextmenu", (s) => {
       s.preventDefault(), this.openSettings();
     }), this.setStatus("\u7B49\u5F85\u540C\u6B65", "idle"), this.addCommand({ id: "sync-now", name: "\u7ACB\u5373\u540C\u6B65", callback: () => void this.sync(true) }), this.addCommand({ id: "open-settings", name: "\u6253\u5F00\u540C\u6B65\u8BBE\u7F6E", callback: () => this.openSettings() }), this.addCommand({ id: "open-web-portal", name: "\u6253\u5F00 NoteCloud \u7F51\u9875\u7248", callback: () => void this.openWebPortal() }), this.addCommand({ id: "check-updates-notices", name: "\u68C0\u67E5\u66F4\u65B0\u4E0E\u516C\u544A", callback: () => void this.checkServiceStatus(true) }), this.registerEvent(this.app.vault.on("create", () => this.markPending())), this.registerEvent(this.app.vault.on("modify", () => this.markPending())), this.registerEvent(this.app.vault.on("delete", () => this.markPending())), this.registerEvent(this.app.vault.on("rename", () => this.markPending())), this.configureAutoSync(), this.settings.autoSync && window.setTimeout(() => void this.sync(false), 5e3), window.setTimeout(() => void this.checkServiceStatus(false), 8e3);
+    community.initialize(this);
+    this.addCommand({ id: "open-announcements", name: "查看公告", callback: () => community.openAnnouncements(this) });
+    this.addCommand({ id: "send-feedback", name: "意见反馈", callback: () => community.openFeedback(this) });
   }
   onunload() {
+    this.announcementButton?.remove();
     this.autoSyncTimer && window.clearInterval(this.autoSyncTimer), this.floatingButton?.remove();
   }
   configureAutoSync() {
@@ -161,15 +166,15 @@ var x = class extends h.Plugin {
     }
   }
   async checkServiceStatus(t = false) {
-    if (!t && Date.now() - (this.settings.lastServiceCheckAt || 0) < 6 * 60 * 60 * 1e3) return this.settings.serviceStatus;
+    if (!t && Date.now() - Math.max(this.settings.lastServiceCheckAt || 0, this.lastServiceAttemptAt || 0) < 5 * 60 * 1000) return this.settings.serviceStatus;
+    this.lastServiceAttemptAt = Date.now();
     try {
       let e = await this.request(`/v1/plugin/status?version=${encodeURIComponent(this.manifest.version)}&platform=${h.Platform.isMobile ? "mobile" : "desktop"}`), s = K(this.manifest.version, e.latestVersion) < 0, i = new Set(this.settings.seenAnnouncementIds || []);
       this.settings.serviceStatus = e, this.settings.lastServiceCheckAt = Date.now();
       if (s && this.settings.serviceNotices !== false && this.settings.notifiedUpdateVersion !== e.latestVersion) this.settings.notifiedUpdateVersion = e.latestVersion, new h.Notice(`NoteCloud ${e.latestVersion} \u5DF2\u53D1\u5E03\u3002\u53EF\u5728\u8BBE\u7F6E\u4E2D\u6253\u5F00\u53D1\u5E03\u9875\uFF0CBRAT \u4E5F\u53EF\u68C0\u67E5\u66F4\u65B0\u3002`, 12e3);
-      for (let r of e.announcements || []) if (!i.has(r.id)) {
-        (r.level === "critical" || r.level === "warning" && this.settings.serviceNotices !== false) && new h.Notice(`NoteCloud\uFF1A${r.title}\n${r.message}`, r.level === "critical" ? 0 : 12e3), i.add(r.id);
-      }
-      this.settings.seenAnnouncementIds = [...i].slice(-100), await this.saveSettings(), this.settingsTab?.display();
+      community.ingest(this, e.announcements);
+      await this.saveSettings();
+      if (t) this.settingsTab?.display();
       if (t) new h.Notice(s ? `\u53D1\u73B0\u65B0\u7248\u672C ${e.latestVersion}` : "NoteCloud \u5DF2\u662F\u6700\u65B0\u7248\u672C");
       return e;
     } catch (e) {
@@ -317,11 +322,13 @@ var x = class extends h.Plugin {
       return this.setStatus(e, "error"), new h.Notice(`NoteCloud \u8FDE\u63A5\u5931\u8D25\uFF1A${e}`), false;
     }
   }
-  async openWebPortal() {
+  async openWebPortal(destination) {
     try {
       this.settings.token || await this.login();
       let t = await this.authorizedRequest("/v1/auth/web-ticket", { method: "POST", body: "{}" });
-      window.open(t.url, "_blank", "noopener,noreferrer");
+      const url = new URL(t.url);
+      if (destination === "/feedback") url.pathname = destination;
+      window.open(url.href, "_blank", "noopener,noreferrer");
     } catch (t) {
       let e = t instanceof Error ? t.message : "\u65E0\u6CD5\u6253\u5F00\u7F51\u9875\u7248";
       this.setStatus(e, "error"), new h.Notice(`NoteCloud\uFF1A${e}`);
@@ -492,6 +499,7 @@ var x = class extends h.Plugin {
   display() {
     let { containerEl: e } = this;
     e.empty(), e.addClass("notecloud-modern-settings");
+    community.renderTop(this.plugin, e);
     let s = this.plugin.settings, i = s.account, used = i?.usedBytes || 0, total = i?.quotaBytes || 0, percent = total ? Math.min(100, used / total * 100) : 0;
     let quota = new h.Setting(e).setClass("notecloud-quota-top").setName("\u4E91\u7AEF\u7A7A\u95F4").setDesc(i ? `${R(used)} / ${R(total)}` : "\u767B\u5F55\u540E\u663E\u793A").addButton((b) => {
       this.plugin.syncActionButton = b, b.onClick(() => void this.plugin.sync(true)), this.plugin.updateSyncButton();
@@ -563,16 +571,14 @@ var x = class extends h.Plugin {
     let service = s.serviceStatus, updateAvailable = service && K(this.plugin.manifest.version, service.latestVersion) < 0, statusText = service ? `\u5F53\u524D ${this.plugin.manifest.version}\uFF0C\u6700\u65B0 ${service.latestVersion}\uFF1B\u4E0A\u6B21\u68C0\u67E5 ${new Date(s.lastServiceCheckAt).toLocaleString()}` : "\u5C1A\u672A\u68C0\u67E5";
     let updateSetting = new h.Setting(e).setName(updateAvailable ? "\u53D1\u73B0\u63D2\u4EF6\u65B0\u7248\u672C" : "\u63D2\u4EF6\u66F4\u65B0").setDesc(statusText).addButton((b) => b.setButtonText("\u7ACB\u5373\u68C0\u67E5").onClick(() => void this.plugin.checkServiceStatus(true)));
     updateAvailable && updateSetting.addButton((b) => b.setButtonText("\u6253\u5F00\u53D1\u5E03\u9875").setCta().onClick(() => window.open(service.releaseUrl, "_blank", "noopener,noreferrer")));
-    new h.Setting(e).setName("\u975E\u7D27\u6025\u63D0\u9192").setDesc("\u6BCF 6 \u5C0F\u65F6\u6700\u591A\u68C0\u67E5\u4E00\u6B21\uFF0C\u540C\u4E00\u66F4\u65B0\u6216\u516C\u544A\u53EA\u5F39\u4E00\u6B21\uFF1B\u7D27\u6025\u7EF4\u62A4\u901A\u77E5\u4E0D\u53D7\u6B64\u5F00\u5173\u5F71\u54CD").addToggle((b) => b.setValue(s.serviceNotices !== false).onChange(async (v) => {
-      s.serviceNotices = v, await this.persist();
+    new h.Setting(e).setName("轻提示与图标动画").setDesc("每 5 分钟检查公告；未读公告显示在右下角和设置顶部，不强制弹窗。关闭后图标保持静态。").addToggle((b) => b.setValue(s.serviceNotices !== false).onChange(async (v) => {
+      s.serviceNotices = v, await this.persist(), community.updateIcon(this.plugin);
     }));
-    for (let notice of (service?.announcements || []).slice(0, 3)) {
-      let noticeSetting = new h.Setting(e).setName(`${notice.level === "critical" ? "[\u7D27\u6025] " : notice.level === "warning" ? "[\u63D0\u9192] " : ""}${notice.title}`).setDesc(notice.message);
-      notice.linkUrl && noticeSetting.addButton((b) => b.setButtonText("\u67E5\u770B\u8BE6\u60C5").onClick(() => window.open(notice.linkUrl, "_blank", "noopener,noreferrer")));
-    }
+    new h.Setting(e).setName("意见反馈").setDesc("提出建议、报告问题或联系管理员。采纳后可获管理员发放的容量奖励。").addButton(b => b.setButtonText("提交反馈").onClick(() => community.openFeedback(this.plugin))).addButton(b => b.setButtonText("查看回复").onClick(() => void this.plugin.openWebPortal("/feedback")));
     let link = e.createEl("a", { text: "\u8BBF\u95EE NoteCloud \u7F51\u9875\u7248 \u2192", href: "#", cls: "notecloud-web-link" });
     link.onclick = (b) => {
       b.preventDefault(), void this.plugin.openWebPortal();
     };
+    community.renderHistory(this.plugin, e);
   }
 };

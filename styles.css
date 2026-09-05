@@ -152,4 +152,13 @@
 .notecloud-interval-input .setting-item-control{align-items:center;display:flex;gap:7px}
 .notecloud-interval-input .setting-item-control:after{color:var(--text-muted);content:"分钟";font-size:12px}
 .notecloud-interval-input input{height:34px;width:90px}
+.notecloud-announcement-button{position:fixed;right:calc(24px + env(safe-area-inset-right,0px));bottom:calc(82px + env(safe-area-inset-bottom,0px));z-index:50;width:42px;height:42px;border-radius:50%;border:1px solid var(--background-modifier-border);background:var(--background-primary);color:var(--text-accent);box-shadow:0 3px 14px #0002;display:flex;align-items:center;justify-content:center}
+.notecloud-announcement-button[hidden]{display:none}
+.notecloud-announcement-button.has-unread{animation:notecloud-announcement-pulse 3s ease-in-out infinite}
+.notecloud-announcement-button:focus-visible{outline:2px solid var(--interactive-accent);outline-offset:3px}
+.notecloud-announcement-count{position:absolute;right:-4px;top:-5px;min-width:18px;padding:1px 4px;border-radius:12px;background:var(--interactive-accent);color:var(--text-on-accent);font-size:11px;line-height:17px}
+.notecloud-unread-announcements{margin:16px 0;padding:8px 16px;border:1px solid var(--interactive-accent);border-radius:12px}
+.notecloud-unread-announcements .setting-item-description{white-space:pre-wrap}
+@keyframes notecloud-announcement-pulse{0%,100%{opacity:1}50%{opacity:.55}}
+@media(prefers-reduced-motion:reduce){.notecloud-announcement-button.has-unread{animation:none}}
 @media(max-width:600px){.notecloud-uniform-input .setting-item-control,.notecloud-uniform-input input{width:100%}.notecloud-password-setting .setting-item-control{width:100%}}
