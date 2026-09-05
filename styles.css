@@ -137,3 +137,19 @@
     width: 46px;
   }
 }
+.notecloud-modern-settings .notecloud-quota-top{border:1px solid var(--background-modifier-border);border-radius:12px;padding:14px;background:var(--background-secondary)}
+.notecloud-modern-settings .notecloud-account-actions .setting-item-info{display:none}
+.notecloud-modern-settings .notecloud-account-actions .setting-item-control{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;width:100%}
+.notecloud-modern-settings .notecloud-account-actions button{font-size:12px;padding:6px 4px;white-space:nowrap}
+.notecloud-modern-settings .notecloud-web-link{display:block;margin:28px 0 8px;color:var(--text-muted);text-align:center;text-decoration:none}
+.notecloud-modern-settings .notecloud-web-link:hover{color:var(--text-accent)}
+@media(max-width:600px){.notecloud-modern-settings .notecloud-account-actions button{font-size:11px;padding:6px 2px}.notecloud-modern-settings .setting-item{align-items:flex-start}.notecloud-modern-settings .setting-item-control{flex-wrap:wrap}}.notecloud-quota-top .notecloud-quota-track{background:var(--background-modifier-border);border-radius:999px;height:7px;margin-top:9px;overflow:hidden;width:min(360px,100%)}
+.notecloud-quota-top .notecloud-quota-fill{background:var(--interactive-accent);border-radius:inherit;height:100%;min-width:0;transition:width .2s ease}
+.notecloud-uniform-input .setting-item-control{position:relative;width:240px;max-width:100%}
+.notecloud-uniform-input input{box-sizing:border-box;height:34px;width:240px;max-width:100%}
+.notecloud-password-setting input{padding-right:36px}
+.notecloud-password-setting .extra-setting-button{position:absolute;right:5px;top:50%;transform:translateY(-50%);z-index:2}
+.notecloud-interval-input .setting-item-control{align-items:center;display:flex;gap:7px}
+.notecloud-interval-input .setting-item-control:after{color:var(--text-muted);content:"分钟";font-size:12px}
+.notecloud-interval-input input{height:34px;width:90px}
+@media(max-width:600px){.notecloud-uniform-input .setting-item-control,.notecloud-uniform-input input{width:100%}.notecloud-password-setting .setting-item-control{width:100%}}

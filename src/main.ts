@@ -1,7 +1,5 @@
+// @ts-nocheck -- restored from the 0.3.7 production bundle; types will be introduced incrementally.
 "use strict";
-var __defProp = Object.defineProperty;
-var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 var B = Object.defineProperty;
 var q = Object.getOwnPropertyDescriptor;
 var D = Object.getOwnPropertyNames;
@@ -125,22 +123,18 @@ function K(c, t) {
   return 0;
 }
 var x = class extends h.Plugin {
-  constructor() {
-    super(...arguments);
-    __publicField(this, "settings", { ...T });
-    __publicField(this, "syncing", false);
-    __publicField(this, "status");
-    __publicField(this, "floatingButton");
-  }
+  settings = { ...T };
+  syncing = false;
+  status;
+  floatingButton;
   async onload() {
     let t = await this.loadData();
-    this.settings = { ...T, ...t || {}, state: (t == null ? void 0 : t.state) || {}, selectedFolders: (t == null ? void 0 : t.selectedFolders) || [], seenAnnouncementIds: (t == null ? void 0 : t.seenAnnouncementIds) || [] }, this.settings.password = "", await this.saveSettings(), this.authPolicy = { passwordHint: "\u5BC6\u7801\u81F3\u5C11 8 \u4F4D\uFF0C\u4E14\u5FC5\u987B\u540C\u65F6\u5305\u542B\u5B57\u6BCD\u548C\u6570\u5B57\u3002", emailCodeLength: 6, emailCodeExpiresMinutes: 10 }, await this.loadAuthPolicy(), this.syncedThisSession = false, this.pendingChanges = true, this.registerObsidianProtocolHandler("notecloud-auth", (parameters) => void this.completeWebAuth(parameters)), this.addSettingTab(new E(this.app, this)), h.Platform.isMobile && this.addRibbonIcon("refresh-cw", "\u7ACB\u5373\u540C\u6B65", () => void this.sync(true)), this.status = this.addStatusBarItem(), this.status.addClass("notecloud-status"), this.status.onclick = () => void this.sync(true), this.status.addEventListener("contextmenu", (s) => {
+    this.settings = { ...T, ...t || {}, state: t?.state || {}, selectedFolders: t?.selectedFolders || [], seenAnnouncementIds: t?.seenAnnouncementIds || [] }, this.settings.password = "", await this.saveSettings(), this.authPolicy = { passwordHint: "\u5BC6\u7801\u81F3\u5C11 8 \u4F4D\uFF0C\u4E14\u5FC5\u987B\u540C\u65F6\u5305\u542B\u5B57\u6BCD\u548C\u6570\u5B57\u3002", emailCodeLength: 6, emailCodeExpiresMinutes: 10 }, await this.loadAuthPolicy(), this.syncedThisSession = false, this.pendingChanges = true, this.registerObsidianProtocolHandler("notecloud-auth", (parameters) => void this.completeWebAuth(parameters)), this.addSettingTab(new E(this.app, this)), h.Platform.isMobile && this.addRibbonIcon("refresh-cw", "\u7ACB\u5373\u540C\u6B65", () => void this.sync(true)), this.status = this.addStatusBarItem(), this.status.addClass("notecloud-status"), this.status.onclick = () => void this.sync(true), this.status.addEventListener("contextmenu", (s) => {
       s.preventDefault(), this.openSettings();
     }), this.setStatus("\u7B49\u5F85\u540C\u6B65", "idle"), this.addCommand({ id: "sync-now", name: "\u7ACB\u5373\u540C\u6B65", callback: () => void this.sync(true) }), this.addCommand({ id: "open-settings", name: "\u6253\u5F00\u540C\u6B65\u8BBE\u7F6E", callback: () => this.openSettings() }), this.addCommand({ id: "open-web-portal", name: "\u6253\u5F00 NoteCloud \u7F51\u9875\u7248", callback: () => void this.openWebPortal() }), this.addCommand({ id: "check-updates-notices", name: "\u68C0\u67E5\u66F4\u65B0\u4E0E\u516C\u544A", callback: () => void this.checkServiceStatus(true) }), this.registerEvent(this.app.vault.on("create", () => this.markPending())), this.registerEvent(this.app.vault.on("modify", () => this.markPending())), this.registerEvent(this.app.vault.on("delete", () => this.markPending())), this.registerEvent(this.app.vault.on("rename", () => this.markPending())), this.configureAutoSync(), this.settings.autoSync && window.setTimeout(() => void this.sync(false), 5e3), window.setTimeout(() => void this.checkServiceStatus(false), 8e3);
   }
   onunload() {
-    var _a;
-    this.autoSyncTimer && window.clearInterval(this.autoSyncTimer), (_a = this.floatingButton) == null ? void 0 : _a.remove();
+    this.autoSyncTimer && window.clearInterval(this.autoSyncTimer), this.floatingButton?.remove();
   }
   configureAutoSync() {
     this.autoSyncTimer && window.clearInterval(this.autoSyncTimer), this.autoSyncTimer = void 0, this.settings.autoSync && (this.autoSyncTimer = window.setInterval(() => void this.sync(false), Math.max(1, Math.min(60, this.settings.syncIntervalMinutes || 5)) * 6e4));
@@ -163,21 +157,19 @@ var x = class extends h.Plugin {
   async loadAuthPolicy() {
     try {
       this.authPolicy = await this.request("/v1/auth/policy");
-    } catch (e) {
+    } catch {
     }
   }
   async checkServiceStatus(t = false) {
-    var _a;
     if (!t && Date.now() - (this.settings.lastServiceCheckAt || 0) < 6 * 60 * 60 * 1e3) return this.settings.serviceStatus;
     try {
       let e = await this.request(`/v1/plugin/status?version=${encodeURIComponent(this.manifest.version)}&platform=${h.Platform.isMobile ? "mobile" : "desktop"}`), s = K(this.manifest.version, e.latestVersion) < 0, i = new Set(this.settings.seenAnnouncementIds || []);
       this.settings.serviceStatus = e, this.settings.lastServiceCheckAt = Date.now();
       if (s && this.settings.serviceNotices !== false && this.settings.notifiedUpdateVersion !== e.latestVersion) this.settings.notifiedUpdateVersion = e.latestVersion, new h.Notice(`NoteCloud ${e.latestVersion} \u5DF2\u53D1\u5E03\u3002\u53EF\u5728\u8BBE\u7F6E\u4E2D\u6253\u5F00\u53D1\u5E03\u9875\uFF0CBRAT \u4E5F\u53EF\u68C0\u67E5\u66F4\u65B0\u3002`, 12e3);
       for (let r of e.announcements || []) if (!i.has(r.id)) {
-        (r.level === "critical" || r.level === "warning" && this.settings.serviceNotices !== false) && new h.Notice(`NoteCloud\uFF1A${r.title}
-${r.message}`, r.level === "critical" ? 0 : 12e3), i.add(r.id);
+        (r.level === "critical" || r.level === "warning" && this.settings.serviceNotices !== false) && new h.Notice(`NoteCloud\uFF1A${r.title}\n${r.message}`, r.level === "critical" ? 0 : 12e3), i.add(r.id);
       }
-      this.settings.seenAnnouncementIds = [...i].slice(-100), await this.saveSettings(), (_a = this.settingsTab) == null ? void 0 : _a.display();
+      this.settings.seenAnnouncementIds = [...i].slice(-100), await this.saveSettings(), this.settingsTab?.display();
       if (t) new h.Notice(s ? `\u53D1\u73B0\u65B0\u7248\u672C ${e.latestVersion}` : "NoteCloud \u5DF2\u662F\u6700\u65B0\u7248\u672C");
       return e;
     } catch (e) {
@@ -239,12 +231,11 @@ ${r.message}`, r.level === "critical" ? 0 : 12e3), i.add(r.id);
     }
   }
   async binaryRequest(t, e = "GET", s) {
-    var _a;
     let i = {};
     this.settings.token && (i.Authorization = `Bearer ${this.settings.token}`);
     let r = await (0, h.requestUrl)({ url: `${this.settings.serverUrl.replace(/\/$/, "")}${t}`, method: e, body: s, contentType: s ? "application/octet-stream" : void 0, headers: i, throw: false });
     if (r.status < 200 || r.status >= 300) {
-      let u = ((_a = r.json) == null ? void 0 : _a.error) || `\u670D\u52A1\u5668\u9519\u8BEF ${r.status}`;
+      let u = r.json?.error || `\u670D\u52A1\u5668\u9519\u8BEF ${r.status}`;
       throw new Error(u);
     }
     return r;
@@ -264,22 +255,21 @@ ${r.message}`, r.level === "critical" ? 0 : 12e3), i.add(r.id);
     return this.beginWebAuth("forgot");
   }
   async beginWebAuth(action = "login") {
-    if (this.syncing) return void new h.Notice("\u8BF7\u7B49\u5F53\u524D\u540C\u6B65\u5B8C\u6210\u540E\u518D\u64CD\u4F5C\u8D26\u53F7");
+    if (this.syncing) return void new h.Notice("请等当前同步完成后再操作账号");
     const verifier = Q(crypto.getRandomValues(new Uint8Array(48))), state = Q(crypto.getRandomValues(new Uint8Array(24))), challenge = Q(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
     this.settings.pendingAuth = { verifier, state, createdAt: Date.now() }, await this.saveSettings();
-    const deviceName = `${h.Platform.isMobile ? "Obsidian Mobile" : "Obsidian Desktop"} \xB7 ${this.app.vault.getName()}`;
+    const deviceName = `${h.Platform.isMobile ? "Obsidian Mobile" : "Obsidian Desktop"} \u00B7 ${this.app.vault.getName()}`;
     const url = `${this.settings.websiteUrl.replace(/\/$/, "")}/auth/plugin?state=${encodeURIComponent(state)}&code_challenge=${encodeURIComponent(challenge)}&device_name=${encodeURIComponent(deviceName)}&action=${encodeURIComponent(action)}`;
     window.open(url, "_blank", "noopener,noreferrer"), new h.Notice("\u5DF2\u6253\u5F00 NoteCloud \u7F51\u7AD9\uFF0C\u8BF7\u5728\u7F51\u9875\u4E2D\u5B8C\u6210\u8D26\u53F7\u64CD\u4F5C");
   }
   async completeWebAuth(parameters) {
-    var _a, _b;
-    if (this.syncing || this.authCompleting) return void new h.Notice("\u5F53\u524D\u6B63\u5728\u540C\u6B65\u6216\u767B\u5F55\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5");
+    if (this.syncing || this.authCompleting) return void new h.Notice("当前正在同步或登录，请稍后重试");
     const pending = this.settings.pendingAuth;
     if (!pending || !parameters.code || parameters.state !== pending.state || Date.now() - pending.createdAt > 10 * 60 * 1e3) return void new h.Notice("NoteCloud \u767B\u5F55\u8BF7\u6C42\u5DF2\u5931\u6548\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u767B\u5F55\u9875");
     try {
       this.authCompleting = true;
       const result = await this.request("/v1/auth/plugin-exchange", { method: "POST", body: JSON.stringify({ code: parameters.code, state: parameters.state, codeVerifier: pending.verifier }) });
-      const oldId = this.settings.stateAccountId || ((_a = this.settings.account) == null ? void 0 : _a.id);
+      const oldId = this.settings.stateAccountId || this.settings.account?.id;
       const changed = oldId ? oldId !== result.id : this.settings.phone ? this.settings.phone !== result.phone : Object.keys(this.settings.state).length > 0;
       if (changed) {
         this.settings.state = {};
@@ -289,12 +279,10 @@ ${r.message}`, r.level === "critical" ? 0 : 12e3), i.add(r.id);
         this.configureAutoSync();
       }
       this.settings.stateAccountId = result.id;
-      this.settings.token = result.token, this.settings.refreshToken = result.refreshToken, this.settings.tokenExpiresAt = Date.now() + result.expiresIn * 1e3, this.settings.phone = result.phone || "", this.settings.password = "", this.settings.account = result, this.settings.pendingAuth = void 0, await this.saveSettings(), (_b = this.settingsTab) == null ? void 0 : _b.display(), this.setStatus("\u5DF2\u767B\u5F55\uFF0C\u7B49\u5F85\u540C\u6B65", "idle"), new h.Notice(`NoteCloud\uFF1A\u5DF2\u8FDE\u63A5 ${result.displayName || "\u8D26\u53F7"}`);
+      this.settings.token = result.token, this.settings.refreshToken = result.refreshToken, this.settings.tokenExpiresAt = Date.now() + result.expiresIn * 1e3, this.settings.phone = result.phone || "", this.settings.password = "", this.settings.account = result, this.settings.pendingAuth = void 0, await this.saveSettings(), this.settingsTab?.display(), this.setStatus("\u5DF2\u767B\u5F55\uFF0C\u7B49\u5F85\u540C\u6B65", "idle"), new h.Notice(`NoteCloud\uFF1A\u5DF2\u8FDE\u63A5 ${result.displayName || "\u8D26\u53F7"}`);
     } catch (error) {
       new h.Notice(`NoteCloud \u767B\u5F55\u5931\u8D25\uFF1A${error instanceof Error ? error.message : "\u8BF7\u91CD\u8BD5"}`);
-    } finally {
-      this.authCompleting = false;
-    }
+    } finally { this.authCompleting = false; }
   }
   async refreshPluginToken() {
     if (!this.settings.refreshToken) throw new Error("\u8BF7\u4ECE NoteCloud \u7F51\u7AD9\u91CD\u65B0\u767B\u5F55");
@@ -302,8 +290,7 @@ ${r.message}`, r.level === "critical" ? 0 : 12e3), i.add(r.id);
     this.settings.token = result.token, this.settings.refreshToken = result.refreshToken, this.settings.tokenExpiresAt = Date.now() + result.expiresIn * 1e3, this.settings.account = result, await this.saveSettings();
   }
   async redeemQuotaCode() {
-    var _a;
-    let t = (_a = this.settings.quotaCode) == null ? void 0 : _a.trim();
+    let t = this.settings.quotaCode?.trim();
     if (!t) throw new Error("\u8BF7\u5148\u586B\u5199\u989D\u5EA6\u5151\u6362\u7801");
     let e = await this.request("/v1/account/quota-code", { method: "POST", body: JSON.stringify({ code: t }) });
     this.settings.quotaCode = "", this.settings.account = { ...this.settings.account, ...e }, await this.saveSettings(), new h.Notice(e.customerStage === "early" ? "\u5151\u6362\u6210\u529F\uFF0C\u5DF2\u6807\u8BB0\u4E3A\u65E9\u671F\u7528\u6237\u5E76\u589E\u52A0\u4E91\u7AEF\u989D\u5EA6" : "\u5151\u6362\u6210\u529F\uFF0C\u4E91\u7AEF\u989D\u5EA6\u5DF2\u66F4\u65B0");
@@ -314,9 +301,8 @@ ${r.message}`, r.level === "critical" ? 0 : 12e3), i.add(r.id);
     throw new Error("\u8BF7\u5728\u5DF2\u6253\u5F00\u7684 NoteCloud \u7F51\u9875\u4E2D\u5B8C\u6210\u767B\u5F55");
   }
   async logout() {
-    var _a, _b;
-    if (this.syncing) return void new h.Notice("\u8BF7\u7B49\u5F53\u524D\u540C\u6B65\u5B8C\u6210\u540E\u518D\u9000\u51FA\u8D26\u53F7");
-    (_b = this.settings).stateAccountId || (_b.stateAccountId = (_a = this.settings.account) == null ? void 0 : _a.id);
+    if (this.syncing) return void new h.Notice("请等当前同步完成后再退出账号");
+    this.settings.stateAccountId ||= this.settings.account?.id;
     this.settings.pendingAuth = void 0;
     this.settings.token = "", this.settings.refreshToken = "", this.settings.tokenExpiresAt = 0, this.settings.password = "", this.settings.account = void 0, await this.saveSettings(), this.setStatus("\u5DF2\u9000\u51FA\u767B\u5F55", "idle"), new h.Notice("NoteCloud \u5DF2\u9000\u51FA\u767B\u5F55");
   }
@@ -360,12 +346,12 @@ ${r.message}`, r.level === "critical" ? 0 : 12e3), i.add(r.id);
     let e = t.split("/").slice(0, -1), s = "";
     for (let i of e) if (s = s ? `${s}/${i}` : i, !this.app.vault.getAbstractFileByPath(s)) try {
       await this.app.vault.createFolder(s);
-    } catch (e2) {
+    } catch {
     }
   }
   async remoteBytes(t) {
     const bytes = (await this.authorizedBinaryRequest(`/v1/sync/file/raw?path=${encodeURIComponent(t.path)}`)).arrayBuffer;
-    if (await F(bytes) !== t.revision) throw new Error("\u4E91\u7AEF\u6587\u4EF6\u5728\u8BFB\u53D6\u65F6\u53D1\u751F\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u540C\u6B65");
+    if (await F(bytes) !== t.revision) throw new Error("云端文件在读取时发生变化，请重新同步");
     return bytes;
   }
   async download(t, expectedLocalHash) {
@@ -373,7 +359,7 @@ ${r.message}`, r.level === "critical" ? 0 : 12e3), i.add(r.id);
     if (expectedLocalHash === void 0) expectedLocalHash = before instanceof h.TFile ? await F(await this.app.vault.readBinary(before)) : null;
     let e = await this.remoteBytes(t), s = this.app.vault.getAbstractFileByPath(t.path);
     const currentHash = s instanceof h.TFile ? await F(await this.app.vault.readBinary(s)) : null;
-    if (currentHash !== expectedLocalHash) throw new Error("\u4E0B\u8F7D\u671F\u95F4\u672C\u5730\u7B14\u8BB0\u5DF2\u4FEE\u6539\uFF0C\u5DF2\u4FDD\u7559\u672C\u5730\u5185\u5BB9\uFF0C\u8BF7\u91CD\u65B0\u540C\u6B65");
+    if (currentHash !== expectedLocalHash) throw new Error("下载期间本地笔记已修改，已保留本地内容，请重新同步");
     s instanceof h.TFile ? await this.app.vault.modifyBinary(s, e) : (await this.ensureParentFolders(t.path), await this.app.vault.createBinary(t.path, e)), this.settings.state[t.path] = { hash: await F(e), remoteRevision: t.revision, baseContent: this.markdownBase(t.path, e) };
   }
   async resolveConflict(t, e, s, i) {
@@ -386,14 +372,14 @@ ${r.message}`, r.level === "critical" ? 0 : 12e3), i.add(r.id);
   linkMetadata(file) {
     if (!this.isMarkdown(file.path)) return [];
     const cache = this.app.metadataCache.getFileCache(file), result = [];
-    for (const [items, kind] of [[(cache == null ? void 0 : cache.links) || [], "link"], [(cache == null ? void 0 : cache.embeds) || [], "embed"]]) for (const item of items) {
+    for (const [items, kind] of [[cache?.links || [], "link"], [cache?.embeds || [], "embed"]]) for (const item of items) {
       const value = item.link || "", fragmentIndex = value.search(/[#^]/), rawTarget = (fragmentIndex >= 0 ? value.slice(0, fragmentIndex) : value).trim(), fragment = fragmentIndex >= 0 ? value.slice(fragmentIndex) : void 0, destination = rawTarget ? this.app.metadataCache.getFirstLinkpathDest(rawTarget, file.path) : void 0;
-      rawTarget && result.push({ rawTarget, targetPath: destination == null ? void 0 : destination.path, kind, fragment, alias: item.displayText || void 0 });
+      rawTarget && result.push({ rawTarget, targetPath: destination?.path, kind, fragment, alias: item.displayText || void 0 });
     }
     return result;
   }
   async upload(t, e, s, expectedRevision) {
-    s || (s = await this.app.vault.readBinary(t));
+    s ||= await this.app.vault.readBinary(t);
     let i, r;
     try {
       let u = await this.authorizedRequest("/v1/sync/uploads", { method: "POST", body: JSON.stringify({ path: t.path, size: s.byteLength, expectedRevision, modifiedAt: new Date(t.stat.mtime).toISOString(), links: this.linkMetadata(t) }) });
@@ -407,7 +393,7 @@ ${r.message}`, r.level === "critical" ? 0 : 12e3), i.add(r.id);
           if (l === 2) throw o;
           await new Promise((g) => window.setTimeout(g, 500 * (l + 1)));
         }
-        (n == null ? void 0 : n.complete) && (r = n.record), a % 5 === 0 && this.setStatus(`\u6B63\u5728\u4E0A\u4F20 ${t.name}\uFF1A${Math.min(100, Math.round((f + d.byteLength) / s.byteLength * 100))}%`, "syncing");
+        n?.complete && (r = n.record), a % 5 === 0 && this.setStatus(`\u6B63\u5728\u4E0A\u4F20 ${t.name}\uFF1A${Math.min(100, Math.round((f + d.byteLength) / s.byteLength * 100))}%`, "syncing");
       }
       if (!r) throw new Error("\u670D\u52A1\u5668\u672A\u5B8C\u6210\u6587\u4EF6\u4E0A\u4F20");
       this.settings.state[t.path] = { hash: e, remoteRevision: r.revision, baseContent: this.markdownBase(t.path, s) };
@@ -417,25 +403,21 @@ ${r.message}`, r.level === "critical" ? 0 : 12e3), i.add(r.id);
     }
   }
   confirmAccountSync() {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       const modal = new h.Modal(this.app);
       let confirmed = false;
       modal.onOpen = () => {
-        modal.contentEl.createEl("h2", { text: "\u786E\u8BA4\u65B0\u8D26\u53F7\u7684\u540C\u6B65\u8303\u56F4" });
-        modal.contentEl.createEl("p", { text: "\u4F60\u5DF2\u5207\u6362\u8D26\u53F7\u3002\u7EE7\u7EED\u4F1A\u628A\u5F53\u524D\u4ED3\u5E93\u4E2D\u9009\u5B9A\u7684\u6587\u4EF6\u4E0E\u65B0\u8D26\u53F7\u540C\u6B65\uFF1B\u5982\u4E0D\u5E0C\u671B\u4E0A\u4F20\u8FD9\u4E9B\u7B14\u8BB0\uFF0C\u8BF7\u5148\u53D6\u6D88\u5E76\u4FEE\u6539\u540C\u6B65\u6587\u4EF6\u5939\u3002\u81EA\u52A8\u540C\u6B65\u5DF2\u6682\u505C\uFF0C\u53EF\u5728\u8BBE\u7F6E\u4E2D\u91CD\u65B0\u5F00\u542F\u3002" });
-        new h.Setting(modal.contentEl).addButton((button) => button.setButtonText("\u53D6\u6D88").onClick(() => modal.close())).addButton((button) => button.setButtonText("\u786E\u8BA4\u540C\u6B65").setCta().onClick(() => {
-          confirmed = true;
-          modal.close();
-        }));
+        modal.contentEl.createEl("h2", { text: "确认新账号的同步范围" });
+        modal.contentEl.createEl("p", { text: "你已切换账号。继续会把当前仓库中选定的文件与新账号同步；如不希望上传这些笔记，请先取消并修改同步文件夹。自动同步已暂停，可在设置中重新开启。" });
+        new h.Setting(modal.contentEl).addButton(button => button.setButtonText("取消").onClick(() => modal.close())).addButton(button => button.setButtonText("确认同步").setCta().onClick(() => { confirmed = true; modal.close(); }));
       };
       modal.onClose = () => resolve(confirmed);
       modal.open();
     });
   }
   async sync(t) {
-    var _a;
-    if (this.authCompleting || this.settings.pendingAuth && Date.now() - this.settings.pendingAuth.createdAt < 10 * 60 * 1e3) {
-      if (t) new h.Notice("\u8BF7\u5148\u5B8C\u6210\u7F51\u9875\u4E0A\u7684\u8D26\u53F7\u64CD\u4F5C\uFF1B\u767B\u5F55\u8BF7\u6C42 10 \u5206\u949F\u540E\u81EA\u52A8\u5931\u6548");
+    if (this.authCompleting || (this.settings.pendingAuth && Date.now() - this.settings.pendingAuth.createdAt < 10 * 60 * 1000)) {
+      if (t) new h.Notice("请先完成网页上的账号操作；登录请求 10 分钟后自动失效");
       return;
     }
     if (this.settings.accountSwitchPending) {
@@ -445,9 +427,7 @@ ${r.message}`, r.level === "critical" ? 0 : 12e3), i.add(r.id);
         if (!await this.confirmAccountSync()) return;
         this.settings.accountSwitchPending = false;
         await this.saveSettings();
-      } finally {
-        this.confirmingAccountSync = false;
-      }
+      } finally { this.confirmingAccountSync = false; }
     }
     if (this.syncing) {
       t && new h.Notice("NoteCloud \u5DF2\u5728\u540C\u6B65\u4E2D\uFF0C\u8BF7\u7A0D\u5019");
@@ -460,7 +440,7 @@ ${r.message}`, r.level === "critical" ? 0 : 12e3), i.add(r.id);
     this.syncing = true, this.setStatus("\u6B63\u5728\u540C\u6B65\u2026", "syncing");
     try {
       this.settings.token || await this.login(), await this.checkServiceStatus(false);
-      let s = (await this.authorizedRequest("/v1/sync/manifest")).files.filter((o) => this.fileInScope(o.path)), i = new Map(s.map((o) => [o.path, o])), r = this.files(), u = new Set(r.map((o) => o.path)), f = Math.min(this.settings.maxFileSizeMB * 1024 * 1024, ((_a = this.settings.serviceStatus) == null ? void 0 : _a.maxUploadBytes) || Number.POSITIVE_INFINITY), a = r.filter((o) => o.stat.size <= f), d = r.length - a.length, n = 0, c = 0;
+      let s = (await this.authorizedRequest("/v1/sync/manifest")).files.filter((o) => this.fileInScope(o.path)), i = new Map(s.map((o) => [o.path, o])), r = this.files(), u = new Set(r.map((o) => o.path)), f = Math.min(this.settings.maxFileSizeMB * 1024 * 1024, this.settings.serviceStatus?.maxUploadBytes || Number.POSITIVE_INFINITY), a = r.filter((o) => o.stat.size <= f), d = r.length - a.length, n = 0, c = 0;
       for (let o of a) {
         let g = await this.app.vault.readBinary(o), y = await F(g), m = this.settings.state[o.path], p = i.get(o.path), w = !m || m.hash !== y, v = !!p && (!m || m.remoteRevision !== p.revision);
         if (p && !m) {
@@ -472,7 +452,7 @@ ${r.message}`, r.level === "critical" ? 0 : 12e3), i.add(r.id);
             let k = await this.remoteBytes(p), S = L(this.text(g).split(/(?<=\n)/), m.baseContent.split(/(?<=\n)/), this.text(k).split(/(?<=\n)/), { excludeFalseConflicts: true });
             if (!S.conflict) {
               let C = new TextEncoder().encode(S.result.join("")).buffer;
-              if (await F(await this.app.vault.readBinary(o)) !== y) throw new Error("\u5408\u5E76\u671F\u95F4\u7B14\u8BB0\u5DF2\u4FEE\u6539\uFF0C\u8BF7\u91CD\u65B0\u540C\u6B65");
+              if (await F(await this.app.vault.readBinary(o)) !== y) throw new Error("合并期间笔记已修改，请重新同步");
               await this.app.vault.modifyBinary(o, C), await this.upload(o, await F(C), C, p.revision), n++;
               continue;
             }
@@ -484,7 +464,7 @@ ${r.message}`, r.level === "critical" ? 0 : 12e3), i.add(r.id);
           await this.download(p, y), n++;
           continue;
         }
-        (w || !p) && (await this.upload(o, y, g, (p == null ? void 0 : p.revision) || null), n++);
+        (w || !p) && (await this.upload(o, y, g, p?.revision || null), n++);
       }
       for (let o of i.values()) if (!u.has(o.path)) {
         let g = this.settings.state[o.path];
@@ -510,17 +490,16 @@ ${r.message}`, r.level === "critical" ? 0 : 12e3), i.add(r.id);
     await this.plugin.saveSettings();
   }
   display() {
-    var _a;
     let { containerEl: e } = this;
     e.empty(), e.addClass("notecloud-modern-settings");
-    let s = this.plugin.settings, i = s.account, used = (i == null ? void 0 : i.usedBytes) || 0, total = (i == null ? void 0 : i.quotaBytes) || 0, percent = total ? Math.min(100, used / total * 100) : 0;
+    let s = this.plugin.settings, i = s.account, used = i?.usedBytes || 0, total = i?.quotaBytes || 0, percent = total ? Math.min(100, used / total * 100) : 0;
     let quota = new h.Setting(e).setClass("notecloud-quota-top").setName("\u4E91\u7AEF\u7A7A\u95F4").setDesc(i ? `${R(used)} / ${R(total)}` : "\u767B\u5F55\u540E\u663E\u793A").addButton((b) => {
       this.plugin.syncActionButton = b, b.onClick(() => void this.plugin.sync(true)), this.plugin.updateSyncButton();
     });
     let track = quota.descEl.createDiv({ cls: "notecloud-quota-track" });
     track.createDiv({ cls: "notecloud-quota-fill", attr: { style: `width:${percent}%` } });
     e.createEl("h3", { text: "\u8D26\u6237" });
-    let accountActions = new h.Setting(e).setName(i ? `${i.displayName || i.phone || "\u5DF2\u767B\u5F55"}${i.customerStage === "early" ? " \xB7 \u65E9\u671F\u7528\u6237" : ""}` : "\u5C1A\u672A\u767B\u5F55").setDesc("\u767B\u5F55\u3001\u6CE8\u518C\u3001\u5207\u6362\u8D26\u53F7\u548C\u5FD8\u8BB0\u5BC6\u7801\u5747\u5728 NoteCloud \u7F51\u7AD9\u5B89\u5168\u5B8C\u6210\uFF0C\u63D2\u4EF6\u4E0D\u4FDD\u5B58\u5BC6\u7801");
+    let accountActions = new h.Setting(e).setName(i ? `${i.displayName || i.phone || "\u5DF2\u767B\u5F55"}${i.customerStage === "early" ? " \u00B7 \u65E9\u671F\u7528\u6237" : ""}` : "\u5C1A\u672A\u767B\u5F55").setDesc("\u767B\u5F55\u3001\u6CE8\u518C\u3001\u5207\u6362\u8D26\u53F7\u548C\u5FD8\u8BB0\u5BC6\u7801\u5747\u5728 NoteCloud \u7F51\u7AD9\u5B89\u5168\u5B8C\u6210\uFF0C\u63D2\u4EF6\u4E0D\u4FDD\u5B58\u5BC6\u7801");
     accountActions.addButton((b) => b.setButtonText(i ? "\u5207\u6362\u8D26\u53F7" : "\u767B\u5F55").setCta().onClick(() => void this.plugin.beginWebAuth(i ? "switch" : "login"))), accountActions.addButton((b) => b.setButtonText("\u6CE8\u518C").onClick(() => void this.plugin.beginWebAuth("register"))), accountActions.addButton((b) => b.setButtonText("\u5FD8\u8BB0\u5BC6\u7801").onClick(() => this.plugin.openPasswordReset()));
     new h.Setting(e).setName("NoteCloud \u7F51\u9875\u7248").setDesc("\u6D4F\u89C8\u4E91\u4ED3\u5E93\u3001\u5206\u4EAB\u7B14\u8BB0\u548C\u7BA1\u7406\u4E2A\u4EBA\u8D44\u6599").addButton((b) => b.setButtonText("\u6253\u5F00\u7F51\u7AD9").onClick(() => void this.plugin.openWebPortal()));
     if (i) new h.Setting(e).setName("\u9000\u51FA\u5F53\u524D\u8D26\u53F7").addButton((b) => b.setButtonText("\u9000\u51FA\u767B\u5F55").onClick(async () => {
@@ -573,7 +552,7 @@ ${r.message}`, r.level === "critical" ? 0 : 12e3), i.add(r.id);
       });
     });
     e.createEl("h3", { text: "\u6587\u4EF6\u5904\u7406" });
-    let serverMaxMb = Math.max(1, Math.floor((((_a = s.serviceStatus) == null ? void 0 : _a.maxUploadBytes) || 200 * 1024 * 1024) / 1024 / 1024));
+    let serverMaxMb = Math.max(1, Math.floor((s.serviceStatus?.maxUploadBytes || 200 * 1024 * 1024) / 1024 / 1024));
     new h.Setting(e).setName("\u5927\u6587\u4EF6\u4E0A\u4F20\u4E0A\u9650").setDesc(`\u8D85\u8FC7 ${s.maxFileSizeMB} MB \u7684\u6587\u4EF6\u6682\u4E0D\u540C\u6B65\uFF1B\u670D\u52A1\u7AEF\u5F53\u524D\u4E0A\u9650 ${serverMaxMb} MB\u3002\u79FB\u52A8\u7AEF\u5EFA\u8BAE\u4FDD\u6301 50 MB \u4EE5\u4E0B`).addSlider((b) => b.setLimits(1, serverMaxMb, 1).setDynamicTooltip().setValue(Math.min(s.maxFileSizeMB, serverMaxMb)).onChange(async (v) => {
       s.maxFileSizeMB = v, await this.persist();
     }));
@@ -587,7 +566,7 @@ ${r.message}`, r.level === "critical" ? 0 : 12e3), i.add(r.id);
     new h.Setting(e).setName("\u975E\u7D27\u6025\u63D0\u9192").setDesc("\u6BCF 6 \u5C0F\u65F6\u6700\u591A\u68C0\u67E5\u4E00\u6B21\uFF0C\u540C\u4E00\u66F4\u65B0\u6216\u516C\u544A\u53EA\u5F39\u4E00\u6B21\uFF1B\u7D27\u6025\u7EF4\u62A4\u901A\u77E5\u4E0D\u53D7\u6B64\u5F00\u5173\u5F71\u54CD").addToggle((b) => b.setValue(s.serviceNotices !== false).onChange(async (v) => {
       s.serviceNotices = v, await this.persist();
     }));
-    for (let notice of ((service == null ? void 0 : service.announcements) || []).slice(0, 3)) {
+    for (let notice of (service?.announcements || []).slice(0, 3)) {
       let noticeSetting = new h.Setting(e).setName(`${notice.level === "critical" ? "[\u7D27\u6025] " : notice.level === "warning" ? "[\u63D0\u9192] " : ""}${notice.title}`).setDesc(notice.message);
       notice.linkUrl && noticeSetting.addButton((b) => b.setButtonText("\u67E5\u770B\u8BE6\u60C5").onClick(() => window.open(notice.linkUrl, "_blank", "noopener,noreferrer")));
     }

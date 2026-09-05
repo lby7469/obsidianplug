@@ -1,9 +1,9 @@
 {
   "id": "notecloud-sync",
   "name": "NoteCloud Sync",
-  "version": "0.3.5",
+  "version": "0.4.1",
   "minAppVersion": "1.5.0",
-  "description": "NoteCloud automatic sync without Git.",
+  "description": "Secure NoteCloud sync, web authorization, linked notes and cloud reading without Git.",
   "author": "NoteCloud",
   "isDesktopOnly": false
 }

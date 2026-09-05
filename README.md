@@ -1,18 +1,43 @@
-# NoteCloud Sync 插件
+# NoteCloud Sync 0.4.1
 
-无需 Git 配置的 Obsidian 同步插件。已有用户输入手机号和密码即可登录，新用户可以使用管理员发放的一次性邀请码自动注册。点击右下角云朵同步，也可以等待每五分钟自动同步。
+NoteCloud Sync 是无需 Git 的 Obsidian 云同步插件，支持桌面端与移动端。
 
-构建发布包：
+## 账号登录
 
-```sh
+插件不再要求用户输入或保存手机号密码：
+
+1. 在插件设置中点击“登录”“注册”“切换账号”或“忘记密码”。
+2. 浏览器会打开 NoteCloud 网站。
+3. 在网站登录或注册，并确认连接当前 Obsidian 设备。
+4. 网站通过 `obsidian://notecloud-auth` 一次性回调插件。
+
+插件只保存可撤销的设备令牌。登录设备可以在 NoteCloud 网站的个人资料中管理。
+
+升级后会清理旧版本遗留的本地密码。所有账号操作必须在网站完成。
+
+## 同步能力
+
+- 手动同步与 1–60 分钟自动同步
+- 选择全部文件夹或指定文件夹
+- Markdown 冲突自动三方合并；失败时默认保留本地冲突副本，也可选择本地优先或云端优先
+- 图片、PDF、音视频、Canvas 与常见办公附件
+- 1MB 分片上传、单片三次重试和失败清理；桌面端默认上限 200MB，移动端默认 50MB
+- 使用 Obsidian MetadataCache 上传 Wiki Link、嵌入、出链目标和别名
+- 从插件免登录打开 NoteCloud 网站
+- 每 6 小时最多检查一次更新和公告，同一消息只提示一次
+
+切换账号会清空旧账号的同步基线、暂停自动同步，并在第一次手动同步时让你确认当前仓库是否应该传到新账号。不会删除本地笔记。
+
+完整安装、同步、冲突、更新、平台兼容和兑换码说明见 [用户使用指南](USER_GUIDE.md)。
+
+## 构建
+
+```powershell
 npm install
+npm run check
 npm run build
 ```
 
-可以通过 BRAT 安装仓库 `lby7469/obsidianplug`，也可以把 Release 中的 `main.js`、`manifest.json` 和 `styles.css` 放到 Obsidian Vault 的 `.obsidian/plugins/notecloud-sync/`，然后在社区插件页面启用。
+发布文件为 `main.js`、`manifest.json`、`styles.css` 和 `versions.json`。可通过 BRAT 使用仓库 `lby7469/obsidianplug`，也可以手动复制到 Vault 的 `.obsidian/plugins/notecloud-sync/`。
 
-首次启用后填写手机号和密码，新用户再填写邀请码，然后点击设置页右上角的勾保存。服务地址固定为 `https://api.notecloud.asia`，普通用户不需要填写服务器地址。
-
-插件支持选择同步文件夹、查看 5 GB 云端空间用量，并默认跳过超过 30 MB 的文件。右下角云朵可以立即同步，右键或长按打开设置。手机端也会显示悬浮同步按钮。
-
-登录后可以从插件设置页打开 NoteCloud 网页版。插件会创建一次性登录票据，网页不需要再次输入手机号和密码。
+`src/main.ts` 是从旧生产发布包恢复并格式化的源码，目前采用渐进类型化；后续功能应修改源码后重新构建，不再直接编辑压缩的 `main.js`。
