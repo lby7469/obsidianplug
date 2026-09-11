@@ -1,10 +1,12 @@
-# NoteCloud Sync 0.4.2
+# NoteCloud Sync 0.4.3
 
 NoteCloud Sync 是无需 Git 配置的 Obsidian 云同步插件，面向桌面和移动端设计。云端保留文件夹层级，网页可阅读笔记、仅链接分享或投稿到首页。
 
 开始使用：Obsidian 设置 → 第三方插件 → 安装并启用 BRAT → 在 BRAT 添加 `lby7469/obsidianplug` → 启用 NoteCloud Sync → 插件设置里登录 → 先备份，再选择文件夹同步。
 
 详细操作说明见 [用户使用指南](USER_GUIDE.md)，网站：[notecloud.asia](https://notecloud.asia)。
+
+自动升级只需配置一次：在 BRAT 中让本插件跟随 **latest**，开启“启动时自动更新 Beta 插件”。固定到某个版本不会自动更新；Obsidian 关闭或 GitHub 不可访问时无法更新。没有使用 BRAT 的旧用户需先完成这一步。
 
 ## 账号登录
 
@@ -24,8 +26,10 @@ NoteCloud Sync 是无需 Git 配置的 Obsidian 云同步插件，面向桌面�
 - 手动同步与 1–60 分钟自动同步
 - 选择全部文件夹或指定文件夹
 - Markdown 冲突自动三方合并；失败时默认保留本地冲突副本，也可选择本地优先或云端优先
-- 图片、PDF、音视频、Canvas 与常见办公附件
-- 1MB 分片上传、单片三次重试和失败清理；桌面端默认上限 200MB，移动端默认 50MB
+- TXT、Markdown（含 .markdown）、图片、PDF、音视频、Canvas 与常见办公附件
+- 小文件直传、桌面两路并发、大文件自适应分片（新服务端最多 4MiB）；失败分片最多重试两次（共三次尝试），已完成进度保留
+- 设置页打开时约每 10 秒刷新容量，返回 Obsidian 时立即刷新；后台赠送额度不必等整次同步完成
+- 可停止同步；未修改文件复用内存哈希缓存，减少重复读盘
 - 使用 Obsidian MetadataCache 上传 Wiki Link、嵌入、出链目标和别名
 - 从插件免登录打开 NoteCloud 网站
 - 在线运行时约每 5 分钟检查更新和公告；未读铃铛、手动已读、最近 10 条历史，不自动弹出公告

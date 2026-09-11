@@ -1,10 +1,28 @@
 "use strict";
 var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __esm = (fn, res) => function __init() {
+  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+};
 var __commonJS = (cb, mod) => function __require() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 
 // src/community.ts
@@ -122,6 +140,106 @@ ${item.createdAt ? new Date(item.createdAt).toLocaleString() : ""}${item.active 
   }
 });
 
+// src/sync-support.ts
+var sync_support_exports = {};
+__export(sync_support_exports, {
+  AccountRefresh: () => AccountRefresh,
+  ServiceError: () => ServiceError,
+  base64: () => base64,
+  runBounded: () => runBounded,
+  safeSyncPath: () => safeSyncPath,
+  timed: () => timed,
+  transient: () => transient
+});
+async function timed(operation, milliseconds = 3e4) {
+  let timer;
+  try {
+    return await Promise.race([operation, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new ServiceError("\u8FDE\u63A5\u8D85\u65F6\uFF0C\u8BF7\u68C0\u67E5\u7F51\u7EDC\u540E\u91CD\u8BD5", 408)), milliseconds);
+    })]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+function base64(bytes) {
+  const view = new Uint8Array(bytes);
+  let binary = "";
+  for (let offset = 0; offset < view.length; offset += 8192) binary += String.fromCharCode(...view.subarray(offset, offset + 8192));
+  return btoa(binary);
+}
+function safeSyncPath(path, configDir = ".obsidian") {
+  return !!path && !path.includes(String.fromCharCode(92)) && !path.split("/").some((part) => !part || part === "." || part === "..") && path !== configDir && !path.startsWith(configDir + "/") && !path.startsWith(".obsidian/") && !path.startsWith(".trash/");
+}
+async function runBounded(items, limit, bytes, budget, work, stopped) {
+  let index = 0, activeBytes = 0;
+  const active = /* @__PURE__ */ new Set();
+  let fatal;
+  while (index < items.length && !stopped() && !fatal || active.size) {
+    while (index < items.length && !stopped() && !fatal && active.size < limit) {
+      const item = items[index], weight = Math.max(1, bytes(item));
+      if (active.size && activeBytes + weight > budget) break;
+      index++;
+      activeBytes += weight;
+      let job;
+      job = Promise.resolve().then(() => work(item)).catch((error) => {
+        fatal || (fatal = error);
+      }).finally(() => {
+        activeBytes -= weight;
+        active.delete(job);
+      });
+      active.add(job);
+    }
+    if (active.size) await Promise.race(active);
+    else break;
+  }
+  if (fatal) throw fatal;
+}
+var ServiceError, transient, AccountRefresh;
+var init_sync_support = __esm({
+  "src/sync-support.ts"() {
+    ServiceError = class extends Error {
+      constructor(message, status = 0, retryAfterMs = 0) {
+        super(message);
+        this.status = status;
+        this.retryAfterMs = retryAfterMs;
+        this.name = "ServiceError";
+      }
+    };
+    transient = (error) => !(error == null ? void 0 : error.status) || error.status === 408 || error.status === 429 || error.status >= 500;
+    AccountRefresh = class {
+      constructor(options) {
+        this.options = options;
+        __publicField(this, "pending");
+        __publicField(this, "lastIdentity", "");
+        __publicField(this, "lastAttempt", 0);
+      }
+      async refresh(force = false, interval = 6e4) {
+        var _a;
+        const identity = this.options.identity(), now = (this.options.now || Date.now)();
+        if (!identity) return;
+        if (((_a = this.pending) == null ? void 0 : _a.identity) === identity) return this.pending.promise;
+        if (!force && this.lastIdentity === identity && now - this.lastAttempt < interval) return;
+        this.lastIdentity = identity;
+        this.lastAttempt = now;
+        const promise = this.options.read().then(async (account) => {
+          if (this.options.identity() !== identity) return;
+          if (!(account == null ? void 0 : account.id) || !Number.isFinite(account.quotaBytes) || !Number.isFinite(account.usedBytes)) throw Error("\u8D26\u6237\u4FE1\u606F\u683C\u5F0F\u5F02\u5E38");
+          await this.options.apply(account);
+          return account;
+        }).catch((error) => {
+          if (this.options.identity() === identity) this.options.error(error);
+          return void 0;
+        }).finally(() => {
+          var _a2;
+          if (((_a2 = this.pending) == null ? void 0 : _a2.promise) === promise) this.pending = void 0;
+        });
+        this.pending = { identity, promise };
+        return promise;
+      }
+    };
+  }
+});
+
 // src/main.ts
 var B = Object.defineProperty;
 var q = Object.getOwnPropertyDescriptor;
@@ -140,6 +258,7 @@ z(H, { default: () => x });
 module.exports = M(H);
 var h = require("obsidian");
 var community = require_community();
+var support = (init_sync_support(), __toCommonJS(sync_support_exports));
 function P(c, t) {
   let e = /* @__PURE__ */ Object.create(null);
   for (let r = 0; r < t.length; r++) {
@@ -228,7 +347,7 @@ function L(c, t, e, s) {
   }), { conflict: d, result: n };
 }
 var T = { serverUrl: "https://api.notecloud.asia", websiteUrl: "https://notecloud.asia", phone: "", password: "", quotaCode: "", token: "", refreshToken: "", tokenExpiresAt: 0, pendingAuth: void 0, state: {}, syncAllFolders: true, selectedFolders: [], autoSync: true, syncIntervalMinutes: 5, maxFileSizeMB: h.Platform.isMobile ? 50 : 200, conflictStrategy: "keep-both", serviceNotices: true, lastServiceCheckAt: 0, seenAnnouncementIds: [], notifiedUpdateVersion: "", serviceStatus: void 0 };
-var O = /* @__PURE__ */ new Set(["md", "canvas", "pdf", "png", "jpg", "jpeg", "gif", "webp", "svg", "mp3", "m4a", "wav", "mp4", "webm", "mov", "docx", "xlsx", "pptx"]);
+var O = /* @__PURE__ */ new Set(["md", "markdown", "txt", "canvas", "pdf", "png", "jpg", "jpeg", "gif", "webp", "svg", "mp3", "m4a", "wav", "mp4", "webm", "mov", "docx", "xlsx", "pptx"]);
 async function F(c) {
   let t = await crypto.subtle.digest("SHA-256", c);
   return [...new Uint8Array(t)].map((e) => e.toString(16).padStart(2, "0")).join("");
@@ -260,21 +379,54 @@ var x = class extends h.Plugin {
     let t = await this.loadData();
     this.settings = { ...T, ...t || {}, state: (t == null ? void 0 : t.state) || {}, selectedFolders: (t == null ? void 0 : t.selectedFolders) || [], seenAnnouncementIds: (t == null ? void 0 : t.seenAnnouncementIds) || [] }, this.settings.password = "", await this.saveSettings(), this.authPolicy = { passwordHint: "\u5BC6\u7801\u81F3\u5C11 8 \u4F4D\uFF0C\u4E14\u5FC5\u987B\u540C\u65F6\u5305\u542B\u5B57\u6BCD\u548C\u6570\u5B57\u3002", emailCodeLength: 6, emailCodeExpiresMinutes: 10 }, await this.loadAuthPolicy(), this.syncedThisSession = false, this.pendingChanges = true, this.registerObsidianProtocolHandler("notecloud-auth", (parameters) => void this.completeWebAuth(parameters)), this.addSettingTab(new E(this.app, this)), h.Platform.isMobile && this.addRibbonIcon("refresh-cw", "\u7ACB\u5373\u540C\u6B65", () => void this.sync(true)), this.status = this.addStatusBarItem(), this.status.addClass("notecloud-status"), this.status.onclick = () => void this.sync(true), this.status.addEventListener("contextmenu", (s) => {
       s.preventDefault(), this.openSettings();
-    }), this.setStatus("\u7B49\u5F85\u540C\u6B65", "idle"), this.addCommand({ id: "sync-now", name: "\u7ACB\u5373\u540C\u6B65", callback: () => void this.sync(true) }), this.addCommand({ id: "open-settings", name: "\u6253\u5F00\u540C\u6B65\u8BBE\u7F6E", callback: () => this.openSettings() }), this.addCommand({ id: "open-web-portal", name: "\u6253\u5F00 NoteCloud \u7F51\u9875\u7248", callback: () => void this.openWebPortal() }), this.addCommand({ id: "check-updates-notices", name: "\u68C0\u67E5\u66F4\u65B0\u4E0E\u516C\u544A", callback: () => void this.checkServiceStatus(true) }), this.registerEvent(this.app.vault.on("create", () => this.markPending())), this.registerEvent(this.app.vault.on("modify", () => this.markPending())), this.registerEvent(this.app.vault.on("delete", () => this.markPending())), this.registerEvent(this.app.vault.on("rename", () => this.markPending())), this.configureAutoSync(), this.settings.autoSync && window.setTimeout(() => void this.sync(false), 5e3), window.setTimeout(() => void this.checkServiceStatus(false), 8e3);
+    }), this.setStatus("\u7B49\u5F85\u540C\u6B65", "idle"), this.addCommand({ id: "sync-now", name: "\u7ACB\u5373\u540C\u6B65", callback: () => void this.sync(true) }), this.addCommand({ id: "open-settings", name: "\u6253\u5F00\u540C\u6B65\u8BBE\u7F6E", callback: () => this.openSettings() }), this.addCommand({ id: "open-web-portal", name: "\u6253\u5F00 NoteCloud \u7F51\u9875\u7248", callback: () => void this.openWebPortal() }), this.addCommand({ id: "check-updates-notices", name: "\u68C0\u67E5\u66F4\u65B0\u4E0E\u516C\u544A", callback: () => void this.checkServiceStatus(true) }), this.registerEvent(this.app.vault.on("create", (file) => this.markPending(file))), this.registerEvent(this.app.vault.on("modify", (file) => this.markPending(file))), this.registerEvent(this.app.vault.on("delete", (file) => this.markPending(file))), this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.markPending(file, oldPath))), this.configureAutoSync(), this.settings.autoSync && (this.startupSyncTimer = window.setTimeout(() => void this.sync(false), 5e3)), this.startupStatusTimer = window.setTimeout(() => void this.checkServiceStatus(false), 8e3);
     community.initialize(this);
+    this.initializeAccountRefresh();
+    this.addCommand({ id: "cancel-sync", name: "\u505C\u6B62\u5F53\u524D\u540C\u6B65", callback: () => this.cancelSync() });
     this.addCommand({ id: "open-announcements", name: "\u67E5\u770B\u516C\u544A", callback: () => community.openAnnouncements(this) });
     this.addCommand({ id: "send-feedback", name: "\u610F\u89C1\u53CD\u9988", callback: () => community.openFeedback(this) });
   }
   onunload() {
     var _a, _b;
+    this.disposed = true;
+    this.authEpoch = (this.authEpoch || 0) + 1;
+    this.cancelSync();
+    window.clearTimeout(this.startupSyncTimer);
+    window.clearTimeout(this.startupStatusTimer);
     (_a = this.announcementButton) == null ? void 0 : _a.remove();
     this.autoSyncTimer && window.clearInterval(this.autoSyncTimer), (_b = this.floatingButton) == null ? void 0 : _b.remove();
   }
   configureAutoSync() {
     this.autoSyncTimer && window.clearInterval(this.autoSyncTimer), this.autoSyncTimer = void 0, this.settings.autoSync && (this.autoSyncTimer = window.setInterval(() => void this.sync(false), Math.max(1, Math.min(60, this.settings.syncIntervalMinutes || 5)) * 6e4));
   }
-  markPending() {
-    this.pendingChanges = true, this.updateSyncButton();
+  markPending(file, oldPath) {
+    this.dirtyPaths || (this.dirtyPaths = /* @__PURE__ */ new Set());
+    this.digestCache || (this.digestCache = /* @__PURE__ */ new Map());
+    if (file && !(file instanceof h.TFile)) {
+      this.digestCache.clear();
+      this.pendingChanges = true;
+    } else for (const path of [file == null ? void 0 : file.path, oldPath]) {
+      if (!path || !support.safeSyncPath(path, this.app.vault.configDir) || !O.has(path.split(".").pop().toLowerCase()) || !this.fileInScope(path)) continue;
+      this.dirtyPaths.add(path);
+      this.digestCache.delete(path);
+      this.pendingChanges = true;
+    }
+    this.updateSyncButton();
+  }
+  checkRun() {
+    var _a;
+    if (this.disposed || ((_a = this.syncRun) == null ? void 0 : _a.cancelled)) throw new support.ServiceError("\u540C\u6B65\u5DF2\u505C\u6B62\uFF0C\u5DF2\u5B8C\u6210\u6587\u4EF6\u4FDD\u7559", 499);
+    if (this.syncRun) this.assertSession(this.syncRun.epoch);
+  }
+  remember(path, hash, revision, bytes, stamp) {
+    var _a;
+    this.settings.state[path] = { hash, remoteRevision: revision, baseContent: this.markdownBase(path, bytes) };
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (stamp && file instanceof h.TFile && file.stat.mtime === stamp.mtime && file.stat.size === stamp.size) {
+      this.digestCache || (this.digestCache = /* @__PURE__ */ new Map());
+      this.digestCache.set(path, { ...stamp, hash });
+      (_a = this.dirtyPaths) == null ? void 0 : _a.delete(path);
+    }
   }
   updateSyncButton() {
     if (!this.syncActionButton) return;
@@ -313,7 +465,10 @@ var x = class extends h.Plugin {
     }
   }
   async saveSettings() {
-    await this.saveData(this.settings);
+    const snapshot = JSON.parse(JSON.stringify(this.settings));
+    this.saveFlight = (this.saveFlight || Promise.resolve()).catch(() => {
+    }).then(() => this.saveData(snapshot));
+    await this.saveFlight;
   }
   openSettings() {
     let t = this.app;
@@ -342,7 +497,8 @@ var x = class extends h.Plugin {
     }), this.floatingButton = t;
   }
   setStatus(t, e) {
-    e === "success" && (this.syncedThisSession = true, this.pendingChanges = false), e === "error" && (this.pendingChanges = true), this.updateSyncButton();
+    if (e === "error") this.pendingChanges = true;
+    this.updateSyncButton();
     if (this.status) {
       this.status.empty();
       let s = this.status.createSpan({ cls: "notecloud-status-icon" });
@@ -350,38 +506,76 @@ var x = class extends h.Plugin {
     }
     this.floatingButton && (this.floatingButton.empty(), (0, h.setIcon)(this.floatingButton, e === "syncing" ? "refresh-cw" : e === "error" ? "cloud-off" : "cloud"), this.floatingButton.toggleClass("is-error", e === "error"), this.floatingButton.toggleClass("is-syncing", e === "syncing"), this.floatingButton.toggleClass("is-success", e === "success"), this.floatingButton.title = `NoteCloud: ${t}\u3002\u70B9\u51FB\u540C\u6B65\uFF0C\u53F3\u952E\u6216\u957F\u6309\u6253\u5F00\u8BBE\u7F6E`, this.floatingButton.setAttribute("aria-label", this.floatingButton.title));
   }
-  async request(t, e = {}) {
-    let s = new Headers(e.headers);
-    e.body !== void 0 && s.set("Content-Type", "application/json"), this.settings.token && s.set("Authorization", `Bearer ${this.settings.token}`);
-    let i = await fetch(`${this.settings.serverUrl.replace(/\/$/, "")}${t}`, { ...e, headers: s }), r = await i.json().catch(() => ({}));
-    if (!i.ok) throw new Error(r.error || `\u670D\u52A1\u5668\u9519\u8BEF ${i.status}`);
-    return r;
-  }
-  async authorizedRequest(t, e = {}) {
-    try {
-      return await this.request(t, e);
-    } catch (s) {
-      if (!(s instanceof Error) || !/Unauthorized/.test(s.message)) throw s;
-      return this.settings.token = "", this.settings.refreshToken ? await this.refreshPluginToken() : await this.login(), this.request(t, e);
-    }
-  }
-  async binaryRequest(t, e = "GET", s) {
+  async request(route, options = {}) {
     var _a;
-    let i = {};
-    this.settings.token && (i.Authorization = `Bearer ${this.settings.token}`);
-    let r = await (0, h.requestUrl)({ url: `${this.settings.serverUrl.replace(/\/$/, "")}${t}`, method: e, body: s, contentType: s ? "application/octet-stream" : void 0, headers: i, throw: false });
-    if (r.status < 200 || r.status >= 300) {
-      let u = ((_a = r.json) == null ? void 0 : _a.error) || `\u670D\u52A1\u5668\u9519\u8BEF ${r.status}`;
-      throw new Error(u);
-    }
-    return r;
-  }
-  async authorizedBinaryRequest(t, e = "GET", s) {
+    const headers = new Headers(options.headers);
+    if (options.body !== void 0) headers.set("Content-Type", "application/json");
+    if (this.settings.token) headers.set("Authorization", "Bearer " + this.settings.token);
+    const plainHeaders = {};
+    headers.forEach((value, key) => plainHeaders[key] = value);
+    const response = await support.timed(h.requestUrl({ url: this.settings.serverUrl.replace(/\/$/, "") + route, method: options.method || "GET", body: options.body, headers: plainHeaders, throw: false }));
+    let body;
     try {
-      return await this.binaryRequest(t, e, s);
-    } catch (i) {
-      if (!(i instanceof Error) || !/Unauthorized/.test(i.message)) throw i;
-      return this.settings.token = "", this.settings.refreshToken ? await this.refreshPluginToken() : await this.login(), this.binaryRequest(t, e, s);
+      body = response.json;
+    } catch (e) {
+      body = {};
+    }
+    if (response.status < 200 || response.status >= 300) throw new support.ServiceError((body == null ? void 0 : body.error) || "\u670D\u52A1\u5668\u9519\u8BEF " + response.status, response.status, Number(((_a = response.headers) == null ? void 0 : _a["retry-after"]) || 0) * 1e3);
+    return body;
+  }
+  assertSession(epoch) {
+    if (this.disposed || (this.authEpoch || 0) !== epoch) throw new support.ServiceError("\u8D26\u53F7\u5DF2\u53D8\u5316\uFF0C\u64CD\u4F5C\u5DF2\u505C\u6B62", 409);
+  }
+  async authorizedRequest(route, options = {}) {
+    const epoch = this.authEpoch || 0;
+    if (this.settings.refreshToken && this.settings.tokenExpiresAt && this.settings.tokenExpiresAt < Date.now() + 3e4) await this.refreshPluginToken();
+    try {
+      const result = await this.request(route, options);
+      this.assertSession(epoch);
+      return result;
+    } catch (error) {
+      this.assertSession(epoch);
+      if (error.status !== 401 && !/Unauthorized/.test(error.message || "")) throw error;
+      if (!this.settings.refreshToken) throw error;
+      await this.refreshPluginToken();
+      this.assertSession(epoch);
+      const result = await this.request(route, options);
+      this.assertSession(epoch);
+      return result;
+    }
+  }
+  async binaryRequest(route, method = "GET", bytes) {
+    var _a;
+    const headers = {};
+    if (this.settings.token) headers.Authorization = "Bearer " + this.settings.token;
+    const response = await support.timed(h.requestUrl({ url: this.settings.serverUrl.replace(/\/$/, "") + route, method, body: bytes, contentType: bytes !== void 0 ? "application/octet-stream" : void 0, headers, throw: false }), 12e4);
+    if (response.status < 200 || response.status >= 300) {
+      let body;
+      try {
+        body = response.json;
+      } catch (e) {
+        body = {};
+      }
+      throw new support.ServiceError((body == null ? void 0 : body.error) || "\u670D\u52A1\u5668\u9519\u8BEF " + response.status, response.status, Number(((_a = response.headers) == null ? void 0 : _a["retry-after"]) || 0) * 1e3);
+    }
+    return response;
+  }
+  async authorizedBinaryRequest(route, method = "GET", bytes) {
+    const epoch = this.authEpoch || 0;
+    if (this.settings.refreshToken && this.settings.tokenExpiresAt && this.settings.tokenExpiresAt < Date.now() + 3e4) await this.refreshPluginToken();
+    try {
+      const result = await this.binaryRequest(route, method, bytes);
+      this.assertSession(epoch);
+      return result;
+    } catch (error) {
+      this.assertSession(epoch);
+      if (error.status !== 401 && !/Unauthorized/.test(error.message || "")) throw error;
+      if (!this.settings.refreshToken) throw error;
+      await this.refreshPluginToken();
+      this.assertSession(epoch);
+      const result = await this.binaryRequest(route, method, bytes);
+      this.assertSession(epoch);
+      return result;
     }
   }
   openRegistration() {
@@ -405,6 +599,8 @@ var x = class extends h.Plugin {
     if (!pending || !parameters.code || parameters.state !== pending.state || Date.now() - pending.createdAt > 10 * 60 * 1e3) return void new h.Notice("NoteCloud \u767B\u5F55\u8BF7\u6C42\u5DF2\u5931\u6548\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u767B\u5F55\u9875");
     try {
       this.authCompleting = true;
+      this.authEpoch = (this.authEpoch || 0) + 1;
+      this.digestCache = /* @__PURE__ */ new Map();
       const result = await this.request("/v1/auth/plugin-exchange", { method: "POST", body: JSON.stringify({ code: parameters.code, state: parameters.state, codeVerifier: pending.verifier }) });
       const oldId = this.settings.stateAccountId || ((_a = this.settings.account) == null ? void 0 : _a.id);
       const changed = oldId ? oldId !== result.id : this.settings.phone ? this.settings.phone !== result.phone : Object.keys(this.settings.state).length > 0;
@@ -424,15 +620,79 @@ var x = class extends h.Plugin {
     }
   }
   async refreshPluginToken() {
-    if (!this.settings.refreshToken) throw new Error("\u8BF7\u4ECE NoteCloud \u7F51\u7AD9\u91CD\u65B0\u767B\u5F55");
-    const result = await this.request("/v1/auth/plugin-refresh", { method: "POST", body: JSON.stringify({ refreshToken: this.settings.refreshToken }) });
-    this.settings.token = result.token, this.settings.refreshToken = result.refreshToken, this.settings.tokenExpiresAt = Date.now() + result.expiresIn * 1e3, this.settings.account = result, await this.saveSettings();
+    var _a;
+    if (this.refreshFlight) return this.refreshFlight;
+    if (!this.settings.refreshToken) throw new support.ServiceError("\u8BF7\u4ECE NoteCloud \u7F51\u7AD9\u91CD\u65B0\u767B\u5F55", 401);
+    const epoch = this.authEpoch || 0, refreshToken = this.settings.refreshToken, accountId = ((_a = this.settings.account) == null ? void 0 : _a.id) || this.settings.stateAccountId;
+    this.refreshFlight = (async () => {
+      var _a2, _b;
+      const result = await this.request("/v1/auth/plugin-refresh", { method: "POST", body: JSON.stringify({ refreshToken }) });
+      this.assertSession(epoch);
+      if (accountId && result.id !== accountId) throw new support.ServiceError("\u8D26\u53F7\u4E0D\u4E00\u81F4\uFF0C\u8BF7\u91CD\u65B0\u767B\u5F55", 401);
+      const { token, refreshToken: nextRefresh, expiresIn, ...account } = result;
+      this.settings.token = token;
+      this.settings.refreshToken = nextRefresh;
+      this.settings.tokenExpiresAt = Date.now() + expiresIn * 1e3;
+      this.settings.account = account;
+      this.lastAccountRefreshAt = Date.now();
+      (_b = (_a2 = this.settingsTab) == null ? void 0 : _a2.refreshAccountUI) == null ? void 0 : _b.call(_a2);
+      await this.saveSettings();
+    })();
+    try {
+      return await this.refreshFlight;
+    } finally {
+      this.refreshFlight = void 0;
+    }
+  }
+  refreshAccount(force = false) {
+    var _a;
+    this.accountRefresher || (this.accountRefresher = new support.AccountRefresh({
+      identity: () => {
+        var _a2;
+        return this.disposed || this.authCompleting || !this.settings.token && !this.settings.refreshToken ? "" : [this.authEpoch || 0, this.settings.serverUrl, ((_a2 = this.settings.account) == null ? void 0 : _a2.id) || this.settings.stateAccountId || "current"].join("|");
+      },
+      read: () => this.authorizedRequest("/v1/account"),
+      apply: async (account) => {
+        var _a2, _b, _c;
+        const expected = this.settings.stateAccountId || ((_a2 = this.settings.account) == null ? void 0 : _a2.id);
+        if (expected && account.id !== expected) throw new support.ServiceError("\u8D26\u53F7\u4E0D\u4E00\u81F4\uFF0C\u8BF7\u91CD\u65B0\u767B\u5F55", 401);
+        const changed = JSON.stringify(this.settings.account) !== JSON.stringify(account);
+        this.settings.account = account;
+        this.lastAccountRefreshAt = Date.now();
+        this.lastAccountRefreshError = "";
+        (_c = (_b = this.settingsTab) == null ? void 0 : _b.refreshAccountUI) == null ? void 0 : _c.call(_b);
+        if (changed) await this.saveSettings();
+      },
+      error: (error) => {
+        var _a2, _b;
+        this.lastAccountRefreshError = (error == null ? void 0 : error.message) || "\u989D\u5EA6\u6682\u672A\u5237\u65B0";
+        (_b = (_a2 = this.settingsTab) == null ? void 0 : _a2.refreshAccountUI) == null ? void 0 : _b.call(_a2);
+      }
+    }));
+    return this.accountRefresher.refresh(force, ((_a = this.settingsTab) == null ? void 0 : _a.accountVisible) ? 1e4 : 6e4);
+  }
+  initializeAccountRefresh() {
+    const wake = () => {
+      if (!document.hidden) void this.refreshAccount(true);
+    };
+    this.registerInterval(window.setInterval(() => {
+      if (!document.hidden) void this.refreshAccount();
+    }, 1e4));
+    this.registerDomEvent(window, "focus", wake);
+    this.registerDomEvent(document, "visibilitychange", wake);
+    void this.refreshAccount(true);
+  }
+  cancelSync() {
+    if (this.syncRun) {
+      this.syncRun.cancelled = true;
+      this.setStatus("\u6B63\u5728\u505C\u6B62\uFF0C\u5DF2\u5B8C\u6210\u7684\u6587\u4EF6\u4F1A\u4FDD\u7559", "syncing");
+    }
   }
   async redeemQuotaCode() {
     var _a;
     let t = (_a = this.settings.quotaCode) == null ? void 0 : _a.trim();
     if (!t) throw new Error("\u8BF7\u5148\u586B\u5199\u989D\u5EA6\u5151\u6362\u7801");
-    let e = await this.request("/v1/account/quota-code", { method: "POST", body: JSON.stringify({ code: t }) });
+    let e = await this.authorizedRequest("/v1/account/quota-code", { method: "POST", body: JSON.stringify({ code: t }) });
     this.settings.quotaCode = "", this.settings.account = { ...this.settings.account, ...e }, await this.saveSettings(), new h.Notice(e.customerStage === "early" ? "\u5151\u6362\u6210\u529F\uFF0C\u5DF2\u6807\u8BB0\u4E3A\u65E9\u671F\u7528\u6237\u5E76\u589E\u52A0\u4E91\u7AEF\u989D\u5EA6" : "\u5151\u6362\u6210\u529F\uFF0C\u4E91\u7AEF\u989D\u5EA6\u5DF2\u66F4\u65B0");
   }
   async login() {
@@ -443,6 +703,7 @@ var x = class extends h.Plugin {
   async logout() {
     var _a, _b;
     if (this.syncing) return void new h.Notice("\u8BF7\u7B49\u5F53\u524D\u540C\u6B65\u5B8C\u6210\u540E\u518D\u9000\u51FA\u8D26\u53F7");
+    this.authEpoch = (this.authEpoch || 0) + 1;
     (_b = this.settings).stateAccountId || (_b.stateAccountId = (_a = this.settings.account) == null ? void 0 : _a.id);
     this.settings.pendingAuth = void 0;
     this.settings.token = "", this.settings.refreshToken = "", this.settings.tokenExpiresAt = 0, this.settings.password = "", this.settings.account = void 0, await this.saveSettings(), this.setStatus("\u5DF2\u9000\u51FA\u767B\u5F55", "idle"), new h.Notice("NoteCloud \u5DF2\u9000\u51FA\u767B\u5F55");
@@ -450,12 +711,18 @@ var x = class extends h.Plugin {
   async checkConnection() {
     this.setStatus("\u6B63\u5728\u68C0\u67E5\u8FDE\u63A5\u2026", "syncing");
     try {
-      let t = await fetch(`${this.settings.serverUrl.replace(/\/$/, "")}/health`);
-      if (!t.ok) throw new Error(`\u670D\u52A1\u5668\u9519\u8BEF ${t.status}`);
-      return this.settings.token || await this.login(), this.settings.account = await this.authorizedRequest("/v1/account"), await this.saveSettings(), this.setStatus("\u4E91\u7AEF\u8FDE\u63A5\u6B63\u5E38", "success"), new h.Notice("NoteCloud \u4E91\u7AEF\u8FDE\u63A5\u6B63\u5E38"), true;
-    } catch (t) {
-      let e = t instanceof Error ? t.message : "\u8FDE\u63A5\u5931\u8D25";
-      return this.setStatus(e, "error"), new h.Notice(`NoteCloud \u8FDE\u63A5\u5931\u8D25\uFF1A${e}`), false;
+      await this.request("/health");
+      if (!this.settings.token) await this.login();
+      const account = await this.refreshAccount(true);
+      if (!account) throw Error(this.lastAccountRefreshError || "\u8D26\u6237\u4FE1\u606F\u5237\u65B0\u5931\u8D25");
+      this.setStatus("\u4E91\u7AEF\u8FDE\u63A5\u6B63\u5E38", "success");
+      new h.Notice("NoteCloud \u4E91\u7AEF\u8FDE\u63A5\u6B63\u5E38");
+      return true;
+    } catch (error) {
+      const message = (error == null ? void 0 : error.message) || "\u8FDE\u63A5\u5931\u8D25";
+      this.setStatus(message, "error");
+      new h.Notice("NoteCloud \u8FDE\u63A5\u5931\u8D25\uFF1A" + message);
+      return false;
     }
   }
   async openWebPortal(destination) {
@@ -474,16 +741,16 @@ var x = class extends h.Plugin {
     return this.settings.syncAllFolders ? true : this.settings.selectedFolders.some((e) => e === "/" ? !t.includes("/") : t.startsWith(`${e}/`));
   }
   files() {
-    return this.app.vault.getFiles().filter((t) => O.has(t.extension.toLowerCase()) && !t.path.startsWith(".obsidian/") && this.fileInScope(t.path));
+    return this.app.vault.getFiles().filter((t) => O.has(t.extension.toLowerCase()) && support.safeSyncPath(t.path, this.app.vault.configDir) && this.fileInScope(t.path));
   }
   isMarkdown(t) {
-    return t.toLowerCase().endsWith(".md");
+    return /\.(md|markdown)$/i.test(t);
   }
   text(t) {
     return new TextDecoder().decode(t);
   }
   markdownBase(t, e) {
-    return this.isMarkdown(t) ? this.text(e) : void 0;
+    return this.isMarkdown(t) && e.byteLength <= 256 * 1024 ? this.text(e) : void 0;
   }
   async ensureParentFolders(t) {
     let e = t.split("/").slice(0, -1), s = "";
@@ -497,13 +764,25 @@ var x = class extends h.Plugin {
     if (await F(bytes) !== t.revision) throw new Error("\u4E91\u7AEF\u6587\u4EF6\u5728\u8BFB\u53D6\u65F6\u53D1\u751F\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u540C\u6B65");
     return bytes;
   }
-  async download(t, expectedLocalHash) {
-    const before = this.app.vault.getAbstractFileByPath(t.path);
+  async download(record, expectedLocalHash) {
+    var _a;
+    this.checkRun();
+    const before = this.app.vault.getAbstractFileByPath(record.path);
     if (expectedLocalHash === void 0) expectedLocalHash = before instanceof h.TFile ? await F(await this.app.vault.readBinary(before)) : null;
-    let e = await this.remoteBytes(t), s = this.app.vault.getAbstractFileByPath(t.path);
-    const currentHash = s instanceof h.TFile ? await F(await this.app.vault.readBinary(s)) : null;
+    const bytes = await this.remoteBytes(record);
+    this.checkRun();
+    const current = this.app.vault.getAbstractFileByPath(record.path);
+    const currentHash = current instanceof h.TFile ? await F(await this.app.vault.readBinary(current)) : null;
     if (currentHash !== expectedLocalHash) throw new Error("\u4E0B\u8F7D\u671F\u95F4\u672C\u5730\u7B14\u8BB0\u5DF2\u4FEE\u6539\uFF0C\u5DF2\u4FDD\u7559\u672C\u5730\u5185\u5BB9\uFF0C\u8BF7\u91CD\u65B0\u540C\u6B65");
-    s instanceof h.TFile ? await this.app.vault.modifyBinary(s, e) : (await this.ensureParentFolders(t.path), await this.app.vault.createBinary(t.path, e)), this.settings.state[t.path] = { hash: await F(e), remoteRevision: t.revision, baseContent: this.markdownBase(t.path, e) };
+    this.checkRun();
+    if (current instanceof h.TFile) await this.app.vault.modifyBinary(current, bytes);
+    else {
+      await this.ensureParentFolders(record.path);
+      this.checkRun();
+      await this.app.vault.createBinary(record.path, bytes);
+    }
+    this.remember(record.path, record.revision, record.revision, bytes);
+    (_a = this.dirtyPaths) == null ? void 0 : _a.delete(record.path);
   }
   async resolveConflict(t, e, s, i) {
     if (this.settings.conflictStrategy === "local") return await this.upload(t, i, s, e.revision), "local";
@@ -521,28 +800,55 @@ var x = class extends h.Plugin {
     }
     return result;
   }
-  async upload(t, e, s, expectedRevision) {
-    s || (s = await this.app.vault.readBinary(t));
-    let i, r;
+  async upload(file, digest, bytes, expectedRevision) {
+    var _a, _b, _c;
+    this.checkRun();
+    bytes || (bytes = await this.app.vault.readBinary(file));
+    const path = file.path, stamp = { mtime: file.stat.mtime, size: file.stat.size };
+    let uploadId, record;
     try {
-      let u = await this.authorizedRequest("/v1/sync/uploads", { method: "POST", body: JSON.stringify({ path: t.path, size: s.byteLength, expectedRevision, modifiedAt: new Date(t.stat.mtime).toISOString(), links: this.linkMetadata(t) }) });
-      i = u.uploadId, r = u.record;
-      if (!u.complete) for (let f = 0, a = 0; f < s.byteLength; f += u.chunkSize, a++) {
-        let d = s.slice(f, Math.min(s.byteLength, f + u.chunkSize)), n;
-        for (let l = 0; l < 3; l++) try {
-          n = (await this.authorizedBinaryRequest(`/v1/sync/uploads/${encodeURIComponent(i)}/chunk?index=${a}`, "PUT", d)).json;
-          break;
-        } catch (o) {
-          if (l === 2) throw o;
-          await new Promise((g) => window.setTimeout(g, 500 * (l + 1)));
+      const payload = { path, size: bytes.byteLength, expectedRevision, expectedAccountId: ((_a = this.settings.account) == null ? void 0 : _a.id) || this.settings.stateAccountId, modifiedAt: new Date(stamp.mtime).toISOString(), links: this.linkMetadata(file) };
+      const maximum = (_b = this.settings.serviceStatus) == null ? void 0 : _b.maxChunkSize;
+      if (maximum) payload.preferredChunkSize = Math.min(maximum, 4 * 1024 * 1024);
+      if (bytes.byteLength <= (((_c = this.settings.serviceStatus) == null ? void 0 : _c.fastUploadBytes) || 0)) payload.initialContent = support.base64(bytes);
+      const session = await this.authorizedRequest("/v1/sync/uploads", { method: "POST", body: JSON.stringify(payload) });
+      uploadId = session.uploadId;
+      record = session.record;
+      const maxChunk = session.chunkSize;
+      if (!session.complete && (!Number.isInteger(maxChunk) || maxChunk < 1 || maxChunk > 4 * 1024 * 1024)) throw Error("\u670D\u52A1\u5668\u8FD4\u56DE\u7684\u5206\u7247\u5927\u5C0F\u5F02\u5E38");
+      let offset = 0, index = 0, pieceSize = Math.min(maxChunk, 1024 * 1024);
+      while (!session.complete && offset < bytes.byteLength) {
+        this.checkRun();
+        const piece = bytes.slice(offset, Math.min(bytes.byteLength, offset + pieceSize));
+        const started = Date.now();
+        let result;
+        for (let attempt = 0; ; attempt++) {
+          try {
+            result = (await this.authorizedBinaryRequest("/v1/sync/uploads/" + encodeURIComponent(uploadId) + "/chunk?index=" + index, "PUT", piece)).json;
+            break;
+          } catch (error) {
+            this.checkRun();
+            if (attempt >= 2 || !support.transient(error)) throw error;
+            await new Promise((resolve) => window.setTimeout(resolve, Math.min(6e4, Math.max(500 * 2 ** attempt, error.retryAfterMs || 0))));
+          }
         }
-        (n == null ? void 0 : n.complete) && (r = n.record), a % 5 === 0 && this.setStatus(`\u6B63\u5728\u4E0A\u4F20 ${t.name}\uFF1A${Math.min(100, Math.round((f + d.byteLength) / s.byteLength * 100))}%`, "syncing");
+        offset += piece.byteLength;
+        index++;
+        if (result == null ? void 0 : result.complete) {
+          record = result.record;
+          if (offset !== bytes.byteLength) throw Error("\u670D\u52A1\u5668\u63D0\u524D\u7ED3\u675F\u4E86\u6587\u4EF6\u4E0A\u4F20");
+        }
+        const elapsed = Math.max(1, Date.now() - started);
+        pieceSize = Math.min(maxChunk, Math.max(256 * 1024, Math.floor(piece.byteLength / elapsed * 3e3 / (256 * 1024)) * 256 * 1024));
+        this.setStatus("\u6B63\u5728\u4E0A\u4F20 " + file.name + "\uFF1A" + Math.round(offset / bytes.byteLength * 100) + "% \xB7 " + R(piece.byteLength / elapsed * 1e3) + "/\u79D2", "syncing");
       }
-      if (!r) throw new Error("\u670D\u52A1\u5668\u672A\u5B8C\u6210\u6587\u4EF6\u4E0A\u4F20");
-      this.settings.state[t.path] = { hash: e, remoteRevision: r.revision, baseContent: this.markdownBase(t.path, s) };
-    } catch (u) {
-      i && await this.authorizedRequest(`/v1/sync/uploads/${encodeURIComponent(i)}`, { method: "DELETE" }).catch(() => void 0);
-      throw u;
+      if (!record || record.revision !== digest) throw Error("\u4E0A\u4F20\u5B8C\u6210\u6821\u9A8C\u5931\u8D25\uFF0C\u8BF7\u91CD\u65B0\u540C\u6B65\u786E\u8BA4");
+      this.checkRun();
+      this.remember(path, digest, record.revision, bytes);
+    } catch (error) {
+      if (uploadId && !record) await this.authorizedRequest("/v1/sync/uploads/" + encodeURIComponent(uploadId), { method: "DELETE" }).catch(() => {
+      });
+      throw error;
     }
   }
   confirmAccountSync() {
@@ -586,48 +892,152 @@ var x = class extends h.Plugin {
       this.setStatus("\u8BF7\u767B\u5F55", "error"), t && (await this.beginWebAuth("login"), new h.Notice("\u8BF7\u5728 NoteCloud \u7F51\u7AD9\u5B8C\u6210\u767B\u5F55\u540E\u8FD4\u56DE Obsidian"));
       return;
     }
-    this.syncing = true, this.setStatus("\u6B63\u5728\u540C\u6B65\u2026", "syncing");
+    this.syncing = true;
+    const run = this.syncRun = { cancelled: false, epoch: this.authEpoch || 0 };
+    this.digestCache || (this.digestCache = /* @__PURE__ */ new Map());
+    this.dirtyPaths || (this.dirtyPaths = /* @__PURE__ */ new Set());
+    this.setStatus("\u6B63\u5728\u540C\u6B65\u2026", "syncing");
+    let completed = 0, conflicts = 0, skipped = 0, scanned = 0;
+    const errors = [], started = Date.now();
+    let checkpointAt = Date.now(), checkpointCount = 0;
+    const checkpoint = async () => {
+      if (!this.disposed && (++checkpointCount >= 20 || Date.now() - checkpointAt > 1e4)) {
+        checkpointCount = 0;
+        checkpointAt = Date.now();
+        await this.saveSettings();
+      }
+    };
+    const failure = (path, error) => {
+      errors.push({ path, message: error.message || "\u540C\u6B65\u5931\u8D25" });
+      if ([401, 403, 499].includes(error.status) || /Unauthorized/.test(error.message || "")) {
+        run.cancelled = true;
+        throw error;
+      }
+    };
     try {
-      this.settings.token || await this.login(), await this.checkServiceStatus(false);
-      let s = (await this.authorizedRequest("/v1/sync/manifest")).files.filter((o) => this.fileInScope(o.path)), i = new Map(s.map((o) => [o.path, o])), r = this.files(), u = new Set(r.map((o) => o.path)), f = Math.min(this.settings.maxFileSizeMB * 1024 * 1024, ((_a = this.settings.serviceStatus) == null ? void 0 : _a.maxUploadBytes) || Number.POSITIVE_INFINITY), a = r.filter((o) => o.stat.size <= f), d = r.length - a.length, n = 0, c = 0;
-      for (let o of a) {
-        let g = await this.app.vault.readBinary(o), y = await F(g), m = this.settings.state[o.path], p = i.get(o.path), w = !m || m.hash !== y, v = !!p && (!m || m.remoteRevision !== p.revision);
-        if (p && !m) {
-          y === p.revision ? this.settings.state[o.path] = { hash: y, remoteRevision: p.revision, baseContent: this.markdownBase(o.path, g) } : (await this.resolveConflict(o, p, g, y), n++, c++);
-          continue;
-        }
-        if (p && m && w && v) {
-          if (this.isMarkdown(o.path) && m.baseContent !== void 0) {
-            let k = await this.remoteBytes(p), S = L(this.text(g).split(/(?<=\n)/), m.baseContent.split(/(?<=\n)/), this.text(k).split(/(?<=\n)/), { excludeFalseConflicts: true });
-            if (!S.conflict) {
-              let C = new TextEncoder().encode(S.result.join("")).buffer;
-              if (await F(await this.app.vault.readBinary(o)) !== y) throw new Error("\u5408\u5E76\u671F\u95F4\u7B14\u8BB0\u5DF2\u4FEE\u6539\uFF0C\u8BF7\u91CD\u65B0\u540C\u6B65");
-              await this.app.vault.modifyBinary(o, C), await this.upload(o, await F(C), C, p.revision), n++;
-              continue;
-            }
+      if (!this.settings.token) await this.login();
+      const [manifest] = await Promise.all([this.authorizedRequest("/v1/sync/manifest"), this.checkServiceStatus(false), this.refreshAccount(true)]);
+      this.checkRun();
+      const remote = new Map(manifest.files.filter((file) => support.safeSyncPath(file.path, this.app.vault.configDir) && O.has(file.path.split(".").pop().toLowerCase()) && this.fileInScope(file.path)).map((file) => [file.path, file]));
+      const allFiles = this.app.vault.getFiles(), localPaths = new Set(allFiles.map((file) => file.path));
+      const limit = Math.min((this.settings.maxFileSizeMB || (h.Platform.isMobile ? 50 : 200)) * 1024 * 1024, ((_a = this.settings.serviceStatus) == null ? void 0 : _a.maxUploadBytes) || Infinity);
+      const files = this.files();
+      const jobs = files.filter((file) => file.stat.size <= limit).map((file) => ({ file, path: file.path, size: file.stat.size }));
+      skipped = files.length - jobs.length;
+      await support.runBounded(jobs, h.Platform.isMobile ? 1 : 2, (job) => job.size, (h.Platform.isMobile ? 16 : 32) * 1024 * 1024, async (job) => {
+        try {
+          this.checkRun();
+          const file = job.file, path = job.path;
+          if (file.path !== path || this.app.vault.getAbstractFileByPath(path) !== file) {
+            this.pendingChanges = true;
+            return;
           }
-          await this.resolveConflict(o, p, g, y), n++, c++;
-          continue;
+          const stamp = { mtime: file.stat.mtime, size: file.stat.size };
+          const cached = this.digestCache.get(path);
+          let bytes, digest;
+          if (cached && cached.mtime === stamp.mtime && cached.size === stamp.size) digest = cached.hash;
+          else {
+            bytes = await this.app.vault.readBinary(file);
+            digest = await F(bytes);
+          }
+          this.checkRun();
+          if (file.path !== path) return;
+          const state = this.settings.state[path], cloud = remote.get(path);
+          const localChanged = !state || state.hash !== digest, cloudChanged = !!cloud && (!state || state.remoteRevision !== cloud.revision);
+          if ((cloud == null ? void 0 : cloud.revision) === digest || cloud && state && !localChanged && !cloudChanged) {
+            if (bytes) this.remember(path, digest, cloud.revision, bytes, stamp);
+            else this.dirtyPaths.delete(path);
+            return;
+          }
+          bytes || (bytes = await this.app.vault.readBinary(file));
+          if (await F(bytes) !== digest || file.path !== path) throw Error("\u8BFB\u53D6\u671F\u95F4\u7B14\u8BB0\u5DF2\u4FEE\u6539\uFF0C\u8BF7\u91CD\u65B0\u540C\u6B65");
+          if (cloud && (!state || localChanged && cloudChanged)) {
+            if ((state == null ? void 0 : state.baseContent) !== void 0 && this.isMarkdown(path) && bytes.byteLength <= 256 * 1024 && cloud.size <= 256 * 1024) {
+              const remoteContent = await this.remoteBytes(cloud);
+              const merged = L(this.text(bytes).split(/(?<=\n)/), state.baseContent.split(/(?<=\n)/), this.text(remoteContent).split(/(?<=\n)/), { excludeFalseConflicts: true });
+              if (!merged.conflict) {
+                const output = new TextEncoder().encode(merged.result.join("")).buffer;
+                if (await F(await this.app.vault.readBinary(file)) !== digest || file.path !== path) throw Error("\u5408\u5E76\u671F\u95F4\u7B14\u8BB0\u5DF2\u4FEE\u6539\uFF0C\u8BF7\u91CD\u65B0\u540C\u6B65");
+                this.checkRun();
+                await this.app.vault.modifyBinary(file, output);
+                const mergedStamp = { mtime: file.stat.mtime, size: file.stat.size };
+                await this.upload(file, await F(output), output, cloud.revision);
+                completed++;
+                if (file.stat.mtime === mergedStamp.mtime && file.stat.size === mergedStamp.size) this.dirtyPaths.delete(path);
+                else this.dirtyPaths.add(file.path);
+                return;
+              }
+            }
+            await this.resolveConflict(file, cloud, bytes, digest);
+            completed++;
+            conflicts++;
+            return;
+          }
+          if (cloud && cloudChanged && !localChanged) {
+            await this.download(cloud, digest);
+            completed++;
+            return;
+          }
+          if (localChanged || !cloud) {
+            await this.upload(file, digest, bytes, (cloud == null ? void 0 : cloud.revision) || null);
+            this.remember(path, digest, digest, bytes, stamp);
+            completed++;
+            if (file.stat.mtime !== stamp.mtime || file.stat.size !== stamp.size) this.dirtyPaths.add(file.path);
+          }
+        } catch (error) {
+          failure(job.path, error);
+        } finally {
+          scanned++;
+          await checkpoint();
         }
-        if (p && v && !w) {
-          await this.download(p, y), n++;
-          continue;
+      }, () => run.cancelled || this.disposed);
+      this.checkRun();
+      const missing = [...remote.values()].filter((file) => !localPaths.has(file.path));
+      await support.runBounded(missing, h.Platform.isMobile ? 1 : 2, (file) => file.size, (h.Platform.isMobile ? 16 : 32) * 1024 * 1024, async (file) => {
+        try {
+          this.checkRun();
+          if (this.app.vault.getAbstractFileByPath(file.path)) return;
+          const state = this.settings.state[file.path];
+          if (state && state.remoteRevision === file.revision) {
+            await this.authorizedRequest("/v1/sync/file?path=" + encodeURIComponent(file.path) + "&expectedRevision=" + encodeURIComponent(file.revision), { method: "DELETE" });
+            delete this.settings.state[file.path];
+            this.digestCache.delete(file.path);
+            this.dirtyPaths.delete(file.path);
+            completed++;
+          } else if (file.size > limit) skipped++;
+          else {
+            await this.download(file, null);
+            completed++;
+          }
+        } catch (error) {
+          failure(file.path, error);
+        } finally {
+          await checkpoint();
         }
-        (w || !p) && (await this.upload(o, y, g, (p == null ? void 0 : p.revision) || null), n++);
-      }
-      for (let o of i.values()) if (!u.has(o.path)) {
-        let g = this.settings.state[o.path];
-        g && g.remoteRevision === o.revision ? (await this.authorizedRequest(`/v1/sync/file?path=${encodeURIComponent(o.path)}&expectedRevision=${encodeURIComponent(o.revision)}`, { method: "DELETE" }), delete this.settings.state[o.path], n++) : o.size > f ? d++ : (await this.download(o, null), n++);
-      }
-      this.settings.account = await this.authorizedRequest("/v1/account"), this.settings.lastSyncAt = (/* @__PURE__ */ new Date()).toISOString(), await this.saveSettings();
-      let l = `\u5DF2\u540C\u6B65${n ? ` ${n} \u9879` : ""}${c ? `\uFF0C\u5904\u7406 ${c} \u4E2A\u51B2\u7A81` : ""}${d ? `\uFF0C\u8DF3\u8FC7 ${d} \u9879` : ""}`;
-      this.setStatus(l, "success"), t && new h.Notice(`NoteCloud ${l}`);
-    } catch (e) {
-      e instanceof Error && /Unauthorized/.test(e.message) && (this.settings.token = "", this.settings.account = void 0, await this.saveSettings());
-      let s = e instanceof Error ? e.message : "\u540C\u6B65\u5931\u8D25";
-      this.setStatus(s, "error"), t && new h.Notice(`NoteCloud \u540C\u6B65\u5931\u8D25\uFF1A${s}`);
+      }, () => run.cancelled || this.disposed);
+      this.checkRun();
+      this.settings.lastSyncAt = (/* @__PURE__ */ new Date()).toISOString();
+      this.syncedThisSession = true;
+      this.pendingChanges = errors.length > 0 || skipped > 0 || this.dirtyPaths.size > 0;
+      const summary = "\u5DF2\u540C\u6B65 " + completed + " \u9879" + (conflicts ? "\uFF0C\u5904\u7406 " + conflicts + " \u4E2A\u51B2\u7A81" : "") + (skipped ? "\uFF0C\u8DF3\u8FC7 " + skipped + " \u9879" : "") + (errors.length ? "\uFF0C" + errors.length + " \u9879\u5931\u8D25\uFF1A" + errors[0].message : "");
+      this.setStatus(summary, errors.length ? "error" : "success");
+      if (t) new h.Notice("NoteCloud " + summary);
+    } catch (error) {
+      this.pendingChanges = true;
+      this.setStatus(error.message || "\u540C\u6B65\u5931\u8D25", "error");
+      if (t && !this.disposed) new h.Notice("NoteCloud\uFF1A" + (error.message || "\u540C\u6B65\u5931\u8D25"));
     } finally {
+      this.lastSyncReport = { completed, conflicts, skipped, scanned, errors, cancelled: run.cancelled, elapsedMs: Date.now() - started };
+      if (!this.disposed) {
+        try {
+          await this.saveSettings();
+          await this.refreshAccount(true);
+        } catch (e) {
+        }
+      }
       this.syncing = false;
+      this.syncRun = void 0;
+      this.updateSyncButton();
     }
   }
 };
@@ -639,17 +1049,32 @@ var E = class extends h.PluginSettingTab {
   async persist() {
     await this.plugin.saveSettings();
   }
+  hide() {
+    this.accountVisible = false;
+    this.plugin.syncActionButton = void 0;
+  }
+  refreshAccountUI() {
+    const account = this.plugin.settings.account;
+    if (this.quotaText) this.quotaText.textContent = account ? R(account.usedBytes || 0) + " / " + R(account.quotaBytes || 0) + (this.plugin.lastAccountRefreshError ? " \xB7 \u6682\u672A\u5237\u65B0\uFF1A" + this.plugin.lastAccountRefreshError : "") : "\u767B\u5F55\u540E\u663E\u793A";
+    if (this.quotaFill) this.quotaFill.style.width = ((account == null ? void 0 : account.quotaBytes) ? Math.min(100, (account.usedBytes || 0) / account.quotaBytes * 100) : 0) + "%";
+  }
   display() {
     var _a;
+    this.accountVisible = true;
+    void this.plugin.refreshAccount(true);
     let { containerEl: e } = this;
     e.empty(), e.addClass("notecloud-modern-settings");
     community.renderTop(this.plugin, e);
     let s = this.plugin.settings, i = s.account, used = (i == null ? void 0 : i.usedBytes) || 0, total = (i == null ? void 0 : i.quotaBytes) || 0, percent = total ? Math.min(100, used / total * 100) : 0;
-    let quota = new h.Setting(e).setClass("notecloud-quota-top").setName("\u4E91\u7AEF\u7A7A\u95F4").setDesc(i ? `${R(used)} / ${R(total)}` : "\u767B\u5F55\u540E\u663E\u793A").addButton((b) => {
+    let quota = new h.Setting(e).setClass("notecloud-quota-top").setName("\u4E91\u7AEF\u7A7A\u95F4").setDesc("").addButton((b) => {
       this.plugin.syncActionButton = b, b.onClick(() => void this.plugin.sync(true)), this.plugin.updateSyncButton();
     });
     let track = quota.descEl.createDiv({ cls: "notecloud-quota-track" });
-    track.createDiv({ cls: "notecloud-quota-fill", attr: { style: `width:${percent}%` } });
+    this.quotaText = quota.descEl.createSpan({ cls: "notecloud-quota-live" });
+    this.quotaFill = track.createDiv({ cls: "notecloud-quota-fill", attr: { style: `width:${percent}%` } });
+    this.quotaSetting = quota;
+    this.refreshAccountUI();
+    new h.Setting(e).setName("\u7A7A\u95F4\u81EA\u52A8\u5237\u65B0").setDesc("\u6253\u5F00\u8BBE\u7F6E\u548C\u8FD4\u56DE Obsidian \u65F6\u5237\u65B0\uFF1B\u8BBE\u7F6E\u9875\u505C\u7559\u671F\u95F4\u7EA6 10 \u79D2\u66F4\u65B0\u4E00\u6B21\u3002").addButton((b) => b.setButtonText("\u5237\u65B0\u989D\u5EA6").onClick(() => void this.plugin.refreshAccount(true))).addButton((b) => b.setButtonText("\u505C\u6B62\u540C\u6B65").onClick(() => this.plugin.cancelSync()));
     e.createEl("h3", { text: "\u8D26\u6237" });
     let accountActions = new h.Setting(e).setName(i ? `${i.displayName || i.phone || "\u5DF2\u767B\u5F55"}${i.customerStage === "early" ? " \xB7 \u65E9\u671F\u7528\u6237" : ""}` : "\u5C1A\u672A\u767B\u5F55").setDesc("\u767B\u5F55\u3001\u6CE8\u518C\u3001\u5207\u6362\u8D26\u53F7\u548C\u5FD8\u8BB0\u5BC6\u7801\u5747\u5728 NoteCloud \u7F51\u7AD9\u5B89\u5168\u5B8C\u6210\uFF0C\u63D2\u4EF6\u4E0D\u4FDD\u5B58\u5BC6\u7801");
     accountActions.addButton((b) => b.setButtonText(i ? "\u5207\u6362\u8D26\u53F7" : "\u767B\u5F55").setCta().onClick(() => void this.plugin.beginWebAuth(i ? "switch" : "login"))), accountActions.addButton((b) => b.setButtonText("\u6CE8\u518C").onClick(() => void this.plugin.beginWebAuth("register"))), accountActions.addButton((b) => b.setButtonText("\u5FD8\u8BB0\u5BC6\u7801").onClick(() => this.plugin.openPasswordReset()));
@@ -712,6 +1137,11 @@ var E = class extends h.PluginSettingTab {
       s.conflictStrategy = v, await this.persist();
     }));
     e.createEl("h3", { text: "\u66F4\u65B0\u4E0E\u901A\u77E5" });
+    new h.Setting(e).setName("\u81EA\u52A8\u66F4\u65B0\uFF08BRAT\uFF09").setDesc("\u4E00\u6B21\u8BBE\u7F6E\u540E\uFF0CBRAT \u53EF\u81EA\u52A8\u4E0B\u8F7D\u5E76\u91CD\u8F7D\u65B0\u7248\u672C\u3002\u6DFB\u52A0 lby7469/obsidianplug\uFF0C\u9009\u62E9 latest\uFF0C\u5E76\u5F00\u542F\u201C\u542F\u52A8\u65F6\u81EA\u52A8\u66F4\u65B0 Beta \u63D2\u4EF6\u201D\u3002\u9700\u542F\u52A8 Obsidian \u4E14\u53EF\u8FDE\u63A5 GitHub\uFF1B\u56FA\u5B9A\u7248\u672C\u4E0D\u4F1A\u81EA\u52A8\u66F4\u65B0\u3002").addButton((b) => b.setButtonText("\u8BBE\u7F6E\u81EA\u52A8\u66F4\u65B0").onClick(() => {
+      var _a2, _b, _c, _d;
+      if (((_b = (_a2 = this.app.plugins) == null ? void 0 : _a2.getPlugin) == null ? void 0 : _b.call(_a2, "obsidian42-brat")) || ((_d = (_c = this.app.plugins) == null ? void 0 : _c.plugins) == null ? void 0 : _d["obsidian42-brat"])) this.app.setting.openTabById("obsidian42-brat");
+      else window.open("obsidian://show-plugin?id=obsidian42-brat", "_blank");
+    }));
     let service = s.serviceStatus, updateAvailable = service && K(this.plugin.manifest.version, service.latestVersion) < 0, statusText = service ? `\u5F53\u524D ${this.plugin.manifest.version}\uFF0C\u6700\u65B0 ${service.latestVersion}\uFF1B\u4E0A\u6B21\u68C0\u67E5 ${new Date(s.lastServiceCheckAt).toLocaleString()}` : "\u5C1A\u672A\u68C0\u67E5";
     let updateSetting = new h.Setting(e).setName(updateAvailable ? "\u53D1\u73B0\u63D2\u4EF6\u65B0\u7248\u672C" : "\u63D2\u4EF6\u66F4\u65B0").setDesc(statusText).addButton((b) => b.setButtonText("\u7ACB\u5373\u68C0\u67E5").onClick(() => void this.plugin.checkServiceStatus(true)));
     updateAvailable && updateSetting.addButton((b) => b.setButtonText("\u6253\u5F00\u53D1\u5E03\u9875").setCta().onClick(() => window.open(service.releaseUrl, "_blank", "noopener,noreferrer")));
