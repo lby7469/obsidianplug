@@ -46,7 +46,8 @@ var require_community = __commonJS({
       button.empty();
       setIcon(button, "bell");
       if (count) button.createSpan({ cls: "notecloud-announcement-count", text: String(count) });
-      button.toggleClass("has-unread", count > 0 && plugin.settings.serviceNotices !== false);
+      button.toggleClass("has-unread", count > 0);
+      button.toggleClass("is-animated", count > 0 && plugin.settings.serviceNotices !== false);
       button.setAttribute("aria-label", `NoteCloud \u6709 ${count} \u6761\u672A\u8BFB\u516C\u544A\uFF0C\u70B9\u51FB\u67E5\u770B`);
       button.title = `NoteCloud\uFF1A${count} \u6761\u672A\u8BFB\u516C\u544A`;
     }
@@ -74,6 +75,7 @@ var require_community = __commonJS({
       const read = (plugin.settings.readAnnouncementIds || []).includes(item.id);
       const setting = new Setting(container).setName(`${read ? "" : "\u672A\u8BFB \xB7 "}${item.title}`).setDesc(`${item.message}
 ${item.createdAt ? new Date(item.createdAt).toLocaleString() : ""}${item.active === false ? " \xB7 \u5386\u53F2\u516C\u544A" : ""}`);
+      setting.settingEl.toggleClass("notecloud-announcement-unread", !read);
       if (!read) setting.addButton((button) => button.setButtonText("\u6807\u8BB0\u5DF2\u8BFB").onClick(async () => {
         var _a;
         await markRead(plugin, item.id);
@@ -240,6 +242,77 @@ var init_sync_support = __esm({
   }
 });
 
+// src/renewal.ts
+var require_renewal = __commonJS({
+  "src/renewal.ts"(exports2, module2) {
+    var { Modal, Setting, setIcon } = require("obsidian");
+    function currentNotice(plugin) {
+      const settings2 = plugin.settings, account = settings2.account;
+      if (!settings2.token && !settings2.refreshToken || !account || settings2.accountSwitchPending || plugin.authCompleting) return null;
+      if (settings2.stateAccountId && account.id !== settings2.stateAccountId) return null;
+      return account.renewalNotice || (account.syncWritesAllowed === false ? { title: "\u540C\u6B65\u5DF2\u6682\u505C", message: "\u4ED8\u8D39\u6269\u5BB9\u5DF2\u5230\u671F\u4E14\u5DF2\u7528\u7A7A\u95F4\u8D85\u8FC7\u6C38\u4E45\u514D\u8D39\u989D\u5EA6\u3002\u4ECD\u53EF\u5728\u7F51\u9875\u6D4F\u89C8\u3001\u4E0B\u8F7D\u6216\u6E05\u7406\u6587\u4EF6\uFF1B\u7EED\u8D39\u540E\u6062\u590D\u540C\u6B65\u3002", level: "critical" } : null);
+    }
+    function renderCard(plugin, container) {
+      container.empty();
+      const notice = currentNotice(plugin);
+      container.hidden = !notice;
+      if (!notice) return;
+      container.createEl("h3", { text: "\u7EED\u8D39\u63D0\u9192 \xB7 " + notice.title });
+      container.createEl("p", { text: notice.message });
+      new Setting(container).addButton((button) => button.setButtonText("\u67E5\u770B\u7EED\u8D39\u4E0E\u8BB0\u5F55").setCta().onClick(() => void plugin.openWebPortal("/billing"))).addButton((button) => button.setButtonText("\u5237\u65B0\u72B6\u6001").onClick(() => void plugin.refreshAccount(true)));
+    }
+    function update(plugin) {
+      var _a;
+      if (typeof document === "undefined" || plugin.disposed) return;
+      const notice = currentNotice(plugin);
+      if (!plugin.renewalButton) {
+        const button2 = document.body.createEl("button", { cls: "notecloud-renewal-button" });
+        button2.addEventListener("click", () => open(plugin));
+        plugin.renewalButton = button2;
+      }
+      const button = plugin.renewalButton;
+      button.hidden = !notice;
+      button.empty();
+      setIcon(button, "credit-card");
+      button.createSpan({ text: "\u7EED\u8D39" });
+      button.toggleClass("is-critical", (notice == null ? void 0 : notice.level) === "critical");
+      button.toggleClass("is-animated", !!notice && plugin.settings.renewalNoticeAnimation !== false);
+      button.setAttribute("aria-label", notice ? "NoteCloud \u7EED\u8D39\u63D0\u9192\uFF1A" + notice.title : "NoteCloud \u7EED\u8D39\u63D0\u9192");
+      button.title = (notice == null ? void 0 : notice.title) || "\u7EED\u8D39\u63D0\u9192";
+      if (((_a = plugin.renewalTop) == null ? void 0 : _a.isConnected) !== false && plugin.renewalTop) renderCard(plugin, plugin.renewalTop);
+    }
+    function renderTop(plugin, container) {
+      plugin.renewalTop = container.createDiv({ cls: "notecloud-renewal-card" });
+      renderCard(plugin, plugin.renewalTop);
+    }
+    function open(plugin) {
+      const modal = new Modal(plugin.app);
+      modal.onOpen = () => {
+        modal.contentEl.createEl("h2", { text: "\u7A7A\u95F4\u4E0E\u7EED\u8D39" });
+        const notice = currentNotice(plugin), account = plugin.settings.account;
+        modal.contentEl.createEl("p", { text: (notice == null ? void 0 : notice.message) || "\u5F53\u524D\u65E0\u9700\u7EED\u8D39\u3002\u6C38\u4E45\u989D\u5EA6\u53EF\u7EE7\u7EED\u4F7F\u7528\uFF0C\u4ED8\u8D39\u6269\u5BB9\u5230\u671F\u540E\u4EC5\u5728\u8D85\u51FA\u6C38\u4E45\u989D\u5EA6\u65F6\u6682\u505C\u540C\u6B65\u3002" });
+        if (account == null ? void 0 : account.subscription) modal.contentEl.createEl("p", { text: "\u6269\u5BB9\u5230\u671F\u65F6\u95F4\uFF1A" + new Date(account.subscription.expiresAt).toLocaleString() });
+        modal.contentEl.createEl("p", { text: "\u76EE\u524D\u7531\u7BA1\u7406\u5458\u624B\u52A8\u767B\u8BB0\u7EED\u8D39\u3002\u529E\u7406\u540E\u8FD4\u56DE\u63D2\u4EF6\uFF0C\u72B6\u6001\u4F1A\u81EA\u52A8\u5237\u65B0\uFF1B\u4E5F\u53EF\u4EE5\u70B9\u51FB\u5237\u65B0\u72B6\u6001\u3002" });
+        new Setting(modal.contentEl).addButton((button) => button.setButtonText("\u67E5\u770B\u8BB0\u5F55 / \u8054\u7CFB\u7BA1\u7406\u5458").setCta().onClick(() => void plugin.openWebPortal("/billing"))).addButton((button) => button.setButtonText("\u5237\u65B0\u72B6\u6001").onClick(async () => {
+          await plugin.refreshAccount(true);
+          modal.contentEl.empty();
+          modal.onOpen();
+        }));
+      };
+      modal.open();
+    }
+    function settings(plugin, container) {
+      new Setting(container).setName("\u7EED\u8D39\u4E0E\u670D\u52A1\u671F\u9650").setDesc("\u7EED\u8D39\u63D0\u9192\u72EC\u7ACB\u4E8E\u516C\u544A\u3002\u6C38\u4E45\u514D\u8D39\u989D\u5EA6\u5185\u53EF\u7EE7\u7EED\u540C\u6B65\uFF1B\u6269\u5BB9\u5230\u671F\u4E14\u8D85\u989D\u65F6\u6682\u505C\u540C\u6B65\uFF0C\u4ECD\u53EF\u5728\u7F51\u9875\u6D4F\u89C8\u548C\u4E0B\u8F7D\u3002").addButton((button) => button.setButtonText("\u7EED\u8D39\u8BB0\u5F55").onClick(() => void plugin.openWebPortal("/billing")));
+      new Setting(container).setName("\u7EED\u8D39\u63D0\u9192\u52A8\u753B").setDesc("\u63A7\u5236\u53F3\u4E0B\u89D2\u72EC\u7ACB\u7EED\u8D39\u56FE\u6807\u7684\u52A8\u753B\uFF0C\u4E0D\u5F71\u54CD\u516C\u544A\uFF1B\u5173\u95ED\u52A8\u753B\u540E\u4ECD\u663E\u793A\u5F53\u524D\u63D0\u9192\u3002").addToggle((toggle) => toggle.setValue(plugin.settings.renewalNoticeAnimation !== false).onChange(async (value) => {
+        plugin.settings.renewalNoticeAnimation = value;
+        await plugin.saveSettings();
+        update(plugin);
+      }));
+    }
+    module2.exports = { currentNotice, update, renderTop, open, settings };
+  }
+});
+
 // src/main.ts
 var B = Object.defineProperty;
 var q = Object.getOwnPropertyDescriptor;
@@ -259,6 +332,7 @@ module.exports = M(H);
 var h = require("obsidian");
 var community = require_community();
 var support = (init_sync_support(), __toCommonJS(sync_support_exports));
+var renewal = require_renewal();
 function P(c, t) {
   let e = /* @__PURE__ */ Object.create(null);
   for (let r = 0; r < t.length; r++) {
@@ -381,20 +455,25 @@ var x = class extends h.Plugin {
       s.preventDefault(), this.openSettings();
     }), this.setStatus("\u7B49\u5F85\u540C\u6B65", "idle"), this.addCommand({ id: "sync-now", name: "\u7ACB\u5373\u540C\u6B65", callback: () => void this.sync(true) }), this.addCommand({ id: "open-settings", name: "\u6253\u5F00\u540C\u6B65\u8BBE\u7F6E", callback: () => this.openSettings() }), this.addCommand({ id: "open-web-portal", name: "\u6253\u5F00 NoteCloud \u7F51\u9875\u7248", callback: () => void this.openWebPortal() }), this.addCommand({ id: "check-updates-notices", name: "\u68C0\u67E5\u66F4\u65B0\u4E0E\u516C\u544A", callback: () => void this.checkServiceStatus(true) }), this.registerEvent(this.app.vault.on("create", (file) => this.markPending(file))), this.registerEvent(this.app.vault.on("modify", (file) => this.markPending(file))), this.registerEvent(this.app.vault.on("delete", (file) => this.markPending(file))), this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.markPending(file, oldPath))), this.configureAutoSync(), this.settings.autoSync && (this.startupSyncTimer = window.setTimeout(() => void this.sync(false), 5e3)), this.startupStatusTimer = window.setTimeout(() => void this.checkServiceStatus(false), 8e3);
     community.initialize(this);
+    renewal.update(this);
     this.initializeAccountRefresh();
     this.addCommand({ id: "cancel-sync", name: "\u505C\u6B62\u5F53\u524D\u540C\u6B65", callback: () => this.cancelSync() });
     this.addCommand({ id: "open-announcements", name: "\u67E5\u770B\u516C\u544A", callback: () => community.openAnnouncements(this) });
+    this.addCommand({ id: "open-renewal", name: "\u67E5\u770B\u7EED\u8D39\u4E0E\u670D\u52A1\u671F\u9650", callback: () => renewal.open(this) });
     this.addCommand({ id: "send-feedback", name: "\u610F\u89C1\u53CD\u9988", callback: () => community.openFeedback(this) });
   }
   onunload() {
-    var _a, _b;
+    var _a, _b, _c;
     this.disposed = true;
     this.authEpoch = (this.authEpoch || 0) + 1;
     this.cancelSync();
     window.clearTimeout(this.startupSyncTimer);
     window.clearTimeout(this.startupStatusTimer);
+    window.clearTimeout(this.renewalResumeTimer);
     (_a = this.announcementButton) == null ? void 0 : _a.remove();
-    this.autoSyncTimer && window.clearInterval(this.autoSyncTimer), (_b = this.floatingButton) == null ? void 0 : _b.remove();
+    (_b = this.renewalButton) == null ? void 0 : _b.remove();
+    this.renewalTop = void 0;
+    this.autoSyncTimer && window.clearInterval(this.autoSyncTimer), (_c = this.floatingButton) == null ? void 0 : _c.remove();
   }
   configureAutoSync() {
     this.autoSyncTimer && window.clearInterval(this.autoSyncTimer), this.autoSyncTimer = void 0, this.settings.autoSync && (this.autoSyncTimer = window.setInterval(() => void this.sync(false), Math.max(1, Math.min(60, this.settings.syncIntervalMinutes || 5)) * 6e4));
@@ -653,15 +732,26 @@ var x = class extends h.Plugin {
       },
       read: () => this.authorizedRequest("/v1/account"),
       apply: async (account) => {
-        var _a2, _b, _c;
+        var _a2, _b, _c, _d;
         const expected = this.settings.stateAccountId || ((_a2 = this.settings.account) == null ? void 0 : _a2.id);
         if (expected && account.id !== expected) throw new support.ServiceError("\u8D26\u53F7\u4E0D\u4E00\u81F4\uFF0C\u8BF7\u91CD\u65B0\u767B\u5F55", 401);
         const changed = JSON.stringify(this.settings.account) !== JSON.stringify(account);
+        const resumed = ((_b = this.settings.account) == null ? void 0 : _b.syncWritesAllowed) === false && account.syncWritesAllowed === true;
         this.settings.account = account;
         this.lastAccountRefreshAt = Date.now();
         this.lastAccountRefreshError = "";
-        (_c = (_b = this.settingsTab) == null ? void 0 : _b.refreshAccountUI) == null ? void 0 : _c.call(_b);
+        renewal.update(this);
+        (_d = (_c = this.settingsTab) == null ? void 0 : _c.refreshAccountUI) == null ? void 0 : _d.call(_c);
         if (changed) await this.saveSettings();
+        if (resumed && !this.disposed) {
+          this.setStatus("\u7A7A\u95F4\u5DF2\u6062\u590D\uFF0C\u53EF\u4EE5\u7EE7\u7EED\u540C\u6B65", "idle");
+          if (this.settings.autoSync && !this.syncing) {
+            window.clearTimeout(this.renewalResumeTimer);
+            this.renewalResumeTimer = window.setTimeout(() => {
+              if (!this.disposed) void this.sync(false);
+            }, 500);
+          }
+        }
       },
       error: (error) => {
         var _a2, _b;
@@ -868,7 +958,7 @@ var x = class extends h.Plugin {
     });
   }
   async sync(t) {
-    var _a;
+    var _a, _b;
     if (this.authCompleting || this.settings.pendingAuth && Date.now() - this.settings.pendingAuth.createdAt < 10 * 60 * 1e3) {
       if (t) new h.Notice("\u8BF7\u5148\u5B8C\u6210\u7F51\u9875\u4E0A\u7684\u8D26\u53F7\u64CD\u4F5C\uFF1B\u767B\u5F55\u8BF7\u6C42 10 \u5206\u949F\u540E\u81EA\u52A8\u5931\u6548");
       return;
@@ -918,9 +1008,10 @@ var x = class extends h.Plugin {
       if (!this.settings.token) await this.login();
       const [manifest] = await Promise.all([this.authorizedRequest("/v1/sync/manifest"), this.checkServiceStatus(false), this.refreshAccount(true)]);
       this.checkRun();
+      if (manifest.syncWritesAllowed === false || ((_a = this.settings.account) == null ? void 0 : _a.syncWritesAllowed) === false) throw new support.ServiceError("\u4ED8\u8D39\u6269\u5BB9\u5DF2\u5230\u671F\u4E14\u8D85\u51FA\u6C38\u4E45\u989D\u5EA6\uFF0C\u540C\u6B65\u5DF2\u6682\u505C\u3002\u4ECD\u53EF\u5728\u7F51\u9875\u6D4F\u89C8\u3001\u4E0B\u8F7D\u548C\u6E05\u7406\uFF1B\u7EED\u8D39\u540E\u81EA\u52A8\u6062\u590D\u3002", 402);
       const remote = new Map(manifest.files.filter((file) => support.safeSyncPath(file.path, this.app.vault.configDir) && O.has(file.path.split(".").pop().toLowerCase()) && this.fileInScope(file.path)).map((file) => [file.path, file]));
       const allFiles = this.app.vault.getFiles(), localPaths = new Set(allFiles.map((file) => file.path));
-      const limit = Math.min((this.settings.maxFileSizeMB || (h.Platform.isMobile ? 50 : 200)) * 1024 * 1024, ((_a = this.settings.serviceStatus) == null ? void 0 : _a.maxUploadBytes) || Infinity);
+      const limit = Math.min((this.settings.maxFileSizeMB || (h.Platform.isMobile ? 50 : 200)) * 1024 * 1024, ((_b = this.settings.serviceStatus) == null ? void 0 : _b.maxUploadBytes) || Infinity);
       const files = this.files();
       const jobs = files.filter((file) => file.stat.size <= limit).map((file) => ({ file, path: file.path, size: file.stat.size }));
       skipped = files.length - jobs.length;
@@ -1054,6 +1145,7 @@ var E = class extends h.PluginSettingTab {
     this.plugin.syncActionButton = void 0;
   }
   refreshAccountUI() {
+    renewal.update(this.plugin);
     const account = this.plugin.settings.account;
     if (this.quotaText) this.quotaText.textContent = account ? R(account.usedBytes || 0) + " / " + R(account.quotaBytes || 0) + (this.plugin.lastAccountRefreshError ? " \xB7 \u6682\u672A\u5237\u65B0\uFF1A" + this.plugin.lastAccountRefreshError : "") : "\u767B\u5F55\u540E\u663E\u793A";
     if (this.quotaFill) this.quotaFill.style.width = ((account == null ? void 0 : account.quotaBytes) ? Math.min(100, (account.usedBytes || 0) / account.quotaBytes * 100) : 0) + "%";
@@ -1064,6 +1156,7 @@ var E = class extends h.PluginSettingTab {
     void this.plugin.refreshAccount(true);
     let { containerEl: e } = this;
     e.empty(), e.addClass("notecloud-modern-settings");
+    renewal.renderTop(this.plugin, e);
     community.renderTop(this.plugin, e);
     let s = this.plugin.settings, i = s.account, used = (i == null ? void 0 : i.usedBytes) || 0, total = (i == null ? void 0 : i.quotaBytes) || 0, percent = total ? Math.min(100, used / total * 100) : 0;
     let quota = new h.Setting(e).setClass("notecloud-quota-top").setName("\u4E91\u7AEF\u7A7A\u95F4").setDesc("").addButton((b) => {
@@ -1154,5 +1247,6 @@ var E = class extends h.PluginSettingTab {
       b.preventDefault(), void this.plugin.openWebPortal();
     };
     community.renderHistory(this.plugin, e);
+    renewal.settings(this.plugin, e);
   }
 };

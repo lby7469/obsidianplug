@@ -18,7 +18,8 @@ function updateIcon(plugin) {
   button.empty();
   setIcon(button, "bell");
   if (count) button.createSpan({ cls: "notecloud-announcement-count", text: String(count) });
-  button.toggleClass("has-unread", count > 0 && plugin.settings.serviceNotices !== false);
+  button.toggleClass("has-unread", count > 0);
+  button.toggleClass("is-animated", count > 0 && plugin.settings.serviceNotices !== false);
   button.setAttribute("aria-label", `NoteCloud 有 ${count} 条未读公告，点击查看`);
   button.title = `NoteCloud：${count} 条未读公告`;
 }
@@ -43,6 +44,7 @@ async function markRead(plugin, id) {
 function renderItem(plugin, container, item, refresh) {
   const read = (plugin.settings.readAnnouncementIds || []).includes(item.id);
   const setting = new Setting(container).setName(`${read ? "" : "未读 · "}${item.title}`).setDesc(`${item.message}\n${item.createdAt ? new Date(item.createdAt).toLocaleString() : ""}${item.active === false ? " · 历史公告" : ""}`);
+  setting.settingEl.toggleClass("notecloud-announcement-unread", !read);
   if (!read) setting.addButton(button => button.setButtonText("标记已读").onClick(async () => { await markRead(plugin, item.id); refresh(); plugin.settingsTab?.display(); }));
   if (item.linkUrl && /^https:\/\//i.test(item.linkUrl)) setting.addButton(button => button.setButtonText("详情").onClick(() => window.open(item.linkUrl, "_blank", "noopener,noreferrer")));
 }

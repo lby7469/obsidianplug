@@ -22,7 +22,7 @@ class Control {
   onChange(callback) { this.change = callback; return this; }
 }
 class Setting {
-  constructor() { this.controls = []; settings.push(this); }
+  constructor() { this.controls = []; this.settingEl = new Element(); settings.push(this); }
   setName(name) { this.name = name; return this; }
   setDesc(desc) { this.desc = desc; return this; }
   addButton(callback) { const control = new Control(); this.controls.push(control); callback(control); return this; }
@@ -43,12 +43,20 @@ const community = context.module.exports;
   assert.equal(plugin.announcementButton.hidden, false); assert.equal(plugin.announcementButton["has-unread"], true);
   assert.equal(notices.length, 0); assert.equal(modals.length, 0);
   community.openAnnouncements(plugin); assert.equal(community.unread(plugin).length, 10, "Opening is not automatically reading");
+  assert.ok(settings.every(setting => setting.settingEl["notecloud-announcement-unread"] === true), "Unread rows are marked for red styling");
   await community.markRead(plugin, "11"); assert.equal(community.unread(plugin).length, 9); assert.equal(saves, 1);
   community.ingest(plugin, incoming); assert.equal(community.unread(plugin).length, 9);
   plugin.settings = JSON.parse(JSON.stringify(plugin.settings));
   assert.equal(community.unread(plugin).length, 9, "Read state survives serialization");
-  plugin.settings.serviceNotices = false; community.updateIcon(plugin); assert.equal(plugin.announcementButton["has-unread"], false);
+  settings.length = 0; community.openAnnouncements(plugin);
+  assert.equal(settings.find(setting => setting.name === "Announcement 11").settingEl["notecloud-announcement-unread"], false, "Read rows lose the red marker");
+  assert.equal(plugin.announcementButton["is-animated"], true);
+  plugin.settings.serviceNotices = false; community.updateIcon(plugin);
+  assert.equal(plugin.announcementButton["has-unread"], true, "Disabling animation does not hide unread styling");
+  assert.equal(plugin.announcementButton["is-animated"], false);
   community.ingest(plugin, []); assert.equal(community.unread(plugin).length, 0); assert.equal(plugin.settings.announcementHistory.length, 10); assert.equal(plugin.announcementButton.hidden, true);
+  assert.equal(plugin.announcementButton["has-unread"], false);
+  assert.equal(plugin.announcementButton["is-animated"], false);
   settings.length = 0; community.openFeedback(plugin);
   settings.find(setting => setting.name === "标题").controls[0].change("Reader suggestion");
   settings.find(setting => setting.name === "内容").controls[0].change("Please add a reader feature");

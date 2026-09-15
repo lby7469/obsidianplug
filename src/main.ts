@@ -17,6 +17,7 @@ module.exports = M(H);
 var h = require("obsidian");
 var community = require("./community");
 var support = require("./sync-support");
+var renewal = require("./renewal");
 function P(c, t) {
   let e = /* @__PURE__ */ Object.create(null);
   for (let r = 0; r < t.length; r++) {
@@ -135,15 +136,19 @@ var x = class extends h.Plugin {
       s.preventDefault(), this.openSettings();
     }), this.setStatus("\u7B49\u5F85\u540C\u6B65", "idle"), this.addCommand({ id: "sync-now", name: "\u7ACB\u5373\u540C\u6B65", callback: () => void this.sync(true) }), this.addCommand({ id: "open-settings", name: "\u6253\u5F00\u540C\u6B65\u8BBE\u7F6E", callback: () => this.openSettings() }), this.addCommand({ id: "open-web-portal", name: "\u6253\u5F00 NoteCloud \u7F51\u9875\u7248", callback: () => void this.openWebPortal() }), this.addCommand({ id: "check-updates-notices", name: "\u68C0\u67E5\u66F4\u65B0\u4E0E\u516C\u544A", callback: () => void this.checkServiceStatus(true) }), this.registerEvent(this.app.vault.on("create", file => this.markPending(file))), this.registerEvent(this.app.vault.on("modify", file => this.markPending(file))), this.registerEvent(this.app.vault.on("delete", file => this.markPending(file))), this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.markPending(file, oldPath))), this.configureAutoSync(), this.settings.autoSync && (this.startupSyncTimer = window.setTimeout(() => void this.sync(false), 5e3)), this.startupStatusTimer = window.setTimeout(() => void this.checkServiceStatus(false), 8e3);
     community.initialize(this);
+    renewal.update(this);
     this.initializeAccountRefresh();
     this.addCommand({ id: "cancel-sync", name: "停止当前同步", callback: () => this.cancelSync() });
     this.addCommand({ id: "open-announcements", name: "查看公告", callback: () => community.openAnnouncements(this) });
+    this.addCommand({ id: "open-renewal", name: "查看续费与服务期限", callback: () => renewal.open(this) });
     this.addCommand({ id: "send-feedback", name: "意见反馈", callback: () => community.openFeedback(this) });
   }
   onunload() {
     this.disposed = true; this.authEpoch = (this.authEpoch || 0) + 1; this.cancelSync();
     window.clearTimeout(this.startupSyncTimer); window.clearTimeout(this.startupStatusTimer);
+    window.clearTimeout(this.renewalResumeTimer);
     this.announcementButton?.remove();
+    this.renewalButton?.remove(); this.renewalTop = undefined;
     this.autoSyncTimer && window.clearInterval(this.autoSyncTimer), this.floatingButton?.remove();
   }
   configureAutoSync() {
@@ -354,9 +359,15 @@ var x = class extends h.Plugin {
         const expected = this.settings.stateAccountId || this.settings.account?.id;
         if (expected && account.id !== expected) throw new support.ServiceError("账号不一致，请重新登录", 401);
         const changed = JSON.stringify(this.settings.account) !== JSON.stringify(account);
+        const resumed = this.settings.account?.syncWritesAllowed === false && account.syncWritesAllowed === true;
         this.settings.account = account; this.lastAccountRefreshAt = Date.now(); this.lastAccountRefreshError = "";
+        renewal.update(this);
         this.settingsTab?.refreshAccountUI?.();
         if (changed) await this.saveSettings();
+        if (resumed && !this.disposed) {
+          this.setStatus("空间已恢复，可以继续同步", "idle");
+          if (this.settings.autoSync && !this.syncing) { window.clearTimeout(this.renewalResumeTimer); this.renewalResumeTimer = window.setTimeout(() => { if (!this.disposed) void this.sync(false); }, 500); }
+        }
       },
       error: error => { this.lastAccountRefreshError = error?.message || "额度暂未刷新"; this.settingsTab?.refreshAccountUI?.(); }
     });
@@ -575,6 +586,7 @@ return this.app.vault.getFiles().filter((t) => O.has(t.extension.toLowerCase()) 
       if (!this.settings.token) await this.login();
       const [manifest] = await Promise.all([this.authorizedRequest("/v1/sync/manifest"), this.checkServiceStatus(false), this.refreshAccount(true)]);
       this.checkRun();
+      if (manifest.syncWritesAllowed === false || this.settings.account?.syncWritesAllowed === false) throw new support.ServiceError("付费扩容已到期且超出永久额度，同步已暂停。仍可在网页浏览、下载和清理；续费后自动恢复。", 402);
       const remote = new Map(manifest.files.filter(file => support.safeSyncPath(file.path, this.app.vault.configDir) && O.has(file.path.split(".").pop().toLowerCase()) && this.fileInScope(file.path)).map(file => [file.path, file]));
       const allFiles = this.app.vault.getFiles(), localPaths = new Set(allFiles.map(file => file.path));
       const limit = Math.min((this.settings.maxFileSizeMB || (h.Platform.isMobile ? 50 : 200)) * 1024 * 1024, this.settings.serviceStatus?.maxUploadBytes || Infinity);
@@ -674,6 +686,7 @@ return this.app.vault.getFiles().filter((t) => O.has(t.extension.toLowerCase()) 
   }
   hide() { this.accountVisible = false; this.plugin.syncActionButton = undefined; }
   refreshAccountUI() {
+    renewal.update(this.plugin);
     const account = this.plugin.settings.account;
     if (this.quotaText) this.quotaText.textContent = account ? R(account.usedBytes || 0) + " / " + R(account.quotaBytes || 0) + (this.plugin.lastAccountRefreshError ? " · 暂未刷新：" + this.plugin.lastAccountRefreshError : "") : "登录后显示";
     if (this.quotaFill) this.quotaFill.style.width = (account?.quotaBytes ? Math.min(100, (account.usedBytes || 0) / account.quotaBytes * 100) : 0) + "%";
@@ -683,6 +696,7 @@ return this.app.vault.getFiles().filter((t) => O.has(t.extension.toLowerCase()) 
     void this.plugin.refreshAccount(true);
     let { containerEl: e } = this;
     e.empty(), e.addClass("notecloud-modern-settings");
+    renewal.renderTop(this.plugin, e);
     community.renderTop(this.plugin, e);
     let s = this.plugin.settings, i = s.account, used = i?.usedBytes || 0, total = i?.quotaBytes || 0, percent = total ? Math.min(100, used / total * 100) : 0;
     let quota = new h.Setting(e).setClass("notecloud-quota-top").setName("\u4E91\u7AEF\u7A7A\u95F4").setDesc("").addButton((b) => {
@@ -772,5 +786,6 @@ return this.app.vault.getFiles().filter((t) => O.has(t.extension.toLowerCase()) 
       b.preventDefault(), void this.plugin.openWebPortal();
     };
     community.renderHistory(this.plugin, e);
+    renewal.settings(this.plugin, e);
   }
 };
