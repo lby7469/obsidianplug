@@ -1,11 +1,15 @@
 {
   "name": "notecloud-sync",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "private": true,
   "scripts": {
     "build": "esbuild src/main.ts --bundle --external:obsidian --format=cjs --platform=node --target=es2018 --outfile=main.js",
     "check": "tsc --noEmit",
     "test": "node src/sync-regression.cjs && node src/community-regression.cjs && node src/reliability-regression.cjs && node src/renewal-regression.cjs"
+  },
+  "dependencies": {
+    "dompurify": "3.4.14",
+    "marked": "15.0.12"
   },
   "devDependencies": {
     "@types/node": "^24.7.0",

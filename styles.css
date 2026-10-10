@@ -162,6 +162,16 @@
 .notecloud-unread-announcements h3,.notecloud-announcement-unread .setting-item-name{color:var(--text-error,#b91c1c)}
 .notecloud-unread-announcements .setting-item-description{white-space:pre-wrap}
 @keyframes notecloud-announcement-pulse{0%,100%{opacity:1}50%{opacity:.55}}
+.notecloud-announcements-list,.notecloud-announcement-reader{width:min(900px,calc(100vw - 32px));max-height:85vh}
+.notecloud-announcements-list .setting-item{padding:18px 0;gap:14px}
+.notecloud-announcement-read .setting-item-name,.notecloud-announcement-read .setting-item-description,.notecloud-announcement-meta{color:var(--text-muted)}
+.notecloud-announcement-markdown{font-size:16px;line-height:1.85;overflow-wrap:anywhere;padding:12px 0 24px;user-select:text}
+.notecloud-announcement-markdown h1,.notecloud-announcement-markdown h2,.notecloud-announcement-markdown h3{line-height:1.4;margin:1.4em 0 .6em}
+.notecloud-announcement-markdown pre{padding:16px;overflow:auto;border-radius:10px;background:var(--background-secondary)}
+.notecloud-announcement-markdown blockquote{margin:18px 0;padding:8px 18px;border-left:3px solid var(--interactive-accent);background:var(--background-secondary)}
+.notecloud-announcement-markdown table{display:block;max-width:100%;overflow:auto;border-collapse:collapse}
+.notecloud-announcement-markdown td,.notecloud-announcement-markdown th{border:1px solid var(--background-modifier-border);padding:8px 12px}
+@media(max-width:600px){.notecloud-announcements-list .setting-item{flex-direction:column;align-items:stretch}.notecloud-announcements-list .setting-item-control{justify-content:flex-end}.notecloud-announcement-markdown{font-size:15px}}
 @media(prefers-reduced-motion:reduce){.notecloud-announcement-button.is-animated{animation:none}}
 @media(max-width:600px){.notecloud-uniform-input .setting-item-control,.notecloud-uniform-input input{width:100%}.notecloud-password-setting .setting-item-control{width:100%}}
 /* Independent subscription notice; never shares announcement read state. */

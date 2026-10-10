@@ -30,7 +30,7 @@ class Setting {
   addTextArea(callback) { return this.addButton(callback); }
 }
 const obsidian = { Setting, Notice: class { constructor(message) { notices.push(message); } }, setIcon() {}, Modal: class { constructor() { this.contentEl = new Element(); modals.push(this); } open() { this.onOpen(); } close() { this.closed = true; } } };
-const context = vm.createContext({ module: { exports: {} }, require: () => obsidian, document: { body: new Element() }, window: { open() {}, setInterval: () => 1 } });
+const context = vm.createContext({ module: { exports: {} }, require: name => name === "./announcement-markdown" ? { announcementHtml: () => "<h2>Safe fixture</h2>" } : obsidian, document: { body: new Element() }, window: { open() {}, setInterval: () => 1 } });
 vm.runInContext(fs.readFileSync(require("node:path").join(__dirname, "community.ts"), "utf8"), context);
 const community = context.module.exports;
 (async () => {
@@ -44,17 +44,32 @@ const community = context.module.exports;
   assert.equal(notices.length, 0); assert.equal(modals.length, 0);
   community.openAnnouncements(plugin); assert.equal(community.unread(plugin).length, 10, "Opening is not automatically reading");
   assert.ok(settings.every(setting => setting.settingEl["notecloud-announcement-unread"] === true), "Unread rows are marked for red styling");
+  assert.ok(settings.every(setting => !setting.desc.includes("Fixture")), "List must not show announcement bodies");
+  assert.deepEqual(settings[0].controls.map(control => control.text), ["查看", "标为已读"]);
+  const before = community.unread(plugin).length;
+  await settings[0].controls[0].click();
+  assert.equal(community.unread(plugin).length, before, "Viewing does not automatically mark read");
+  assert.equal(modals.at(-1).contentEl.children.find(child => child.cls === "notecloud-announcement-markdown").innerHTML, "<h2>Safe fixture</h2>");
+  await community.deleteAnnouncement(plugin, "11"); assert.equal(plugin.settings.announcementHistory.length, 10, "Unread deletion is refused");
   await community.markRead(plugin, "11"); assert.equal(community.unread(plugin).length, 9); assert.equal(saves, 1);
   community.ingest(plugin, incoming); assert.equal(community.unread(plugin).length, 9);
   plugin.settings = JSON.parse(JSON.stringify(plugin.settings));
   assert.equal(community.unread(plugin).length, 9, "Read state survives serialization");
   settings.length = 0; community.openAnnouncements(plugin);
   assert.equal(settings.find(setting => setting.name === "Announcement 11").settingEl["notecloud-announcement-unread"], false, "Read rows lose the red marker");
+  const readRow = settings.find(setting => setting.name === "Announcement 11");
+  assert.equal(readRow.settingEl["notecloud-announcement-read"], true);
+  assert.deepEqual(readRow.controls.map(control => control.text), ["查看", "删除"]);
+  await readRow.controls[1].click();
+  assert.equal(plugin.settings.announcementHistory.length, 9);
+  plugin.settings = JSON.parse(JSON.stringify(plugin.settings));
+  community.ingest(plugin, incoming);
+  assert.equal(plugin.settings.announcementHistory.some(item => item.id === "11"), false, "Deleted announcement cannot return after refresh/restart");
   assert.equal(plugin.announcementButton["is-animated"], true);
   plugin.settings.serviceNotices = false; community.updateIcon(plugin);
   assert.equal(plugin.announcementButton["has-unread"], true, "Disabling animation does not hide unread styling");
   assert.equal(plugin.announcementButton["is-animated"], false);
-  community.ingest(plugin, []); assert.equal(community.unread(plugin).length, 0); assert.equal(plugin.settings.announcementHistory.length, 10); assert.equal(plugin.announcementButton.hidden, true);
+  community.ingest(plugin, []); assert.equal(community.unread(plugin).length, 0); assert.equal(plugin.settings.announcementHistory.length, 9); assert.equal(plugin.announcementButton.hidden, true);
   assert.equal(plugin.announcementButton["has-unread"], false);
   assert.equal(plugin.announcementButton["is-animated"], false);
   settings.length = 0; community.openFeedback(plugin);
