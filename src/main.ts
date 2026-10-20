@@ -3,6 +3,7 @@ import * as community from "./community";
 import * as support from "./sync-support";
 import * as renewal from "./renewal";
 import { mergeLines } from "./merge";
+import { scopedVaultFiles, selectableVaultFolders } from "./vault-scope";
 import { errorMessage, errorStatus, objectValue, readAccount, readManifest, readPolicy, readSettings, readStatus, readTokens, readUpload, retryAfter, splitLinesAfterLF, stringValue } from "./plugin-types";
 import type { Account, AuthPolicy, PluginSettings, RemoteFile, RequestOptions } from "./plugin-types";
 interface FileStamp {
@@ -667,7 +668,7 @@ export default class NoteCloudPlugin extends h.Plugin {
     fileInScope(t: string) {
         return this.settings.syncAllFolders ? true : this.settings.selectedFolders.some((e) => e === "/" ? !t.includes("/") : t.startsWith(`${e}/`));
     }
-    files(allFiles: readonly h.TFile[] = this.app.vault.getFiles()) {
+    files(allFiles: readonly h.TFile[] = scopedVaultFiles(this.app.vault, this.settings)) {
         return allFiles.filter((t) => SUPPORTED_EXTENSIONS.has(t.extension.toLowerCase()) && support.safeSyncPath(t.path, this.app.vault.configDir) && this.fileInScope(t.path));
     }
     isMarkdown(t: string) {
@@ -902,7 +903,7 @@ export default class NoteCloudPlugin extends h.Plugin {
             if (manifest.syncWritesAllowed === false || this.settings.account?.syncWritesAllowed === false)
                 throw new support.ServiceError("付费扩容已到期且超出永久额度，同步已暂停。仍可在网页浏览、下载和清理；续费后自动恢复。", 402);
             const remote = new Map(manifest.files.filter(file => support.safeSyncPath(file.path, this.app.vault.configDir) && SUPPORTED_EXTENSIONS.has((file.path.split(".").pop() || "").toLowerCase()) && this.fileInScope(file.path)).map(file => [file.path, file]));
-            const allFiles = this.app.vault.getFiles(), localPaths = new Set(allFiles.map(file => file.path));
+            const allFiles = scopedVaultFiles(this.app.vault, this.settings), localPaths = new Set(allFiles.map(file => file.path));
             const limit = Math.min((this.settings.maxFileSizeMB || (h.Platform.isMobile ? 50 : 200)) * 1024 * 1024, this.settings.serviceStatus?.maxUploadBytes || Infinity);
             const files = this.files(allFiles);
             const jobs = files.filter(file => file.stat.size <= limit).map(file => ({ file, path: file.path, size: file.stat.size }));
@@ -1194,7 +1195,10 @@ class NoteCloudSettingsTab extends h.PluginSettingTab {
                 await this.persist();
             }
         }));
-        let folders = this.app.vault.getAllLoadedFiles().filter((b) => b instanceof h.TFolder && b.path).sort((b, v) => b.path.localeCompare(v.path)), items = [{ path: "/", name: "\u6839\u76EE\u5F55\u6587\u4EF6" }, ...folders.map((b) => ({ path: b.path, name: b.path }))];
+        let folders: h.TFolder[] = [];
+        try { folders = selectableVaultFolders(this.app.vault).sort((b, v) => b.path.localeCompare(v.path)); }
+        catch { new h.Setting(e).setName("文件夹列表暂不可用").setDesc("仓库目录尚未就绪或发生变化，请稍后重新打开设置。现有同步范围不会改变。"); }
+        const items = [{ path: "/", name: "\u6839\u76EE\u5F55\u6587\u4EF6" }, ...folders.map((b) => ({ path: b.path, name: b.path }))];
         for (let item of items)
             new h.Setting(e).setName(item.name).addToggle((b) => {
                 {
@@ -1209,9 +1213,12 @@ class NoteCloudSettingsTab extends h.PluginSettingTab {
             });
         e.createEl("h3", { text: "\u6587\u4EF6\u5904\u7406" });
         let serverMaxMb = Math.max(1, Math.floor((s.serviceStatus?.maxUploadBytes || 200 * 1024 * 1024) / 1024 / 1024));
-        new h.Setting(e).setName("\u5927\u6587\u4EF6\u4E0A\u4F20\u4E0A\u9650").setDesc(`\u8D85\u8FC7 ${s.maxFileSizeMB} MB \u7684\u6587\u4EF6\u6682\u4E0D\u540C\u6B65\uFF1B\u670D\u52A1\u7AEF\u5F53\u524D\u4E0A\u9650 ${serverMaxMb} MB\u3002\u79FB\u52A8\u7AEF\u5EFA\u8BAE\u4FDD\u6301 50 MB \u4EE5\u4E0B`).addSlider((b) => b.setLimits(1, serverMaxMb, 1).setDynamicTooltip().setValue(Math.min(s.maxFileSizeMB, serverMaxMb)).onChange(async (v) => {
+        const fileSizeDescription = () => `\u8D85\u8FC7 ${s.maxFileSizeMB} MB \u7684\u6587\u4EF6\u6682\u4E0D\u540C\u6B65\uFF1B\u670D\u52A1\u7AEF\u5F53\u524D\u4E0A\u9650 ${serverMaxMb} MB\u3002\u79FB\u52A8\u7AEF\u5EFA\u8BAE\u4FDD\u6301 50 MB \u4EE5\u4E0B`;
+        const fileSizeSetting = new h.Setting(e).setName("\u5927\u6587\u4EF6\u4E0A\u4F20\u4E0A\u9650").setDesc(fileSizeDescription());
+        fileSizeSetting.addSlider((b) => b.setLimits(1, serverMaxMb, 1).setValue(Math.min(s.maxFileSizeMB, serverMaxMb)).onChange(async (v) => {
             {
                 s.maxFileSizeMB = v;
+                fileSizeSetting.setDesc(fileSizeDescription());
                 await this.persist();
             }
         }));

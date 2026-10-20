@@ -4776,7 +4776,7 @@ function base64(bytes) {
   return btoa(binary);
 }
 function safeSyncPath(path, configDir) {
-  return !!path && !path.includes(String.fromCharCode(92)) && !path.split("/").some((part) => !part || part === "." || part === "..") && path !== configDir && !path.startsWith(configDir + "/") && !path.startsWith(".trash/");
+  return !!path && !path.includes(String.fromCharCode(92)) && !path.split("/").some((part) => !part || part === "." || part === "..") && path !== configDir && !path.startsWith(configDir + "/") && path !== ".trash" && !path.startsWith(".trash/");
 }
 async function runBounded(items, limit, bytes, budget, work, stopped) {
   let index = 0, activeBytes = 0;
@@ -5040,6 +5040,65 @@ function mergeLines(c, t, e, options2) {
       }
     }
   }), { conflict: d, result: n };
+}
+
+// src/vault-scope.ts
+var import_obsidian3 = require("obsidian");
+var unavailable = () => new Error("\u540C\u6B65\u6587\u4EF6\u5939\u6682\u4E0D\u53EF\u7528\uFF0C\u4E3A\u9632\u6B62\u8BEF\u5220\u5DF2\u6682\u505C\u672C\u6B21\u540C\u6B65\u3002\u8BF7\u6062\u590D\u6587\u4EF6\u5939\u6216\u91CD\u65B0\u9009\u62E9\u540C\u6B65\u8303\u56F4\u540E\u91CD\u8BD5\u3002");
+function walk(vault, starts, recursive, root, includeFiles = true) {
+  const files = /* @__PURE__ */ new Map(), folders = /* @__PURE__ */ new Map();
+  const pending = [...starts], visited = /* @__PURE__ */ new Set();
+  while (pending.length) {
+    const folder = pending.pop();
+    if (!folder || visited.has(folder)) continue;
+    visited.add(folder);
+    const isRoot = folder === root;
+    const live = () => isRoot ? vault.getRoot() : vault.getAbstractFileByPath(folder.path);
+    if (live() !== folder || !Array.isArray(folder.children)) throw unavailable();
+    const prefix = isRoot ? "" : folder.path + "/";
+    const children = folder.children.slice();
+    for (const child of children) {
+      if (!(child instanceof import_obsidian3.TFile) && !(child instanceof import_obsidian3.TFolder)) throw unavailable();
+      if (child instanceof import_obsidian3.TFile && !includeFiles) continue;
+      if (child instanceof import_obsidian3.TFolder && !recursive) continue;
+      if (!child.path.startsWith(prefix)) throw unavailable();
+      const relative = child.path.slice(prefix.length);
+      if (!relative || relative.includes("/")) throw unavailable();
+      if (!safeSyncPath(child.path, vault.configDir)) continue;
+      if (child instanceof import_obsidian3.TFile) files.set(child.path, child);
+      else if (recursive) {
+        folders.set(child.path, child);
+        pending.push(child);
+      }
+    }
+    if (live() !== folder) throw unavailable();
+  }
+  return { files, folders };
+}
+function scopedVaultFiles(vault, scope) {
+  if (scope.syncAllFolders) return vault.getFiles();
+  const selected = [...new Set(scope.selectedFolders)];
+  const starts = [], files = /* @__PURE__ */ new Map();
+  for (const selectedPath of selected) {
+    if (selectedPath === "/") {
+      const root = vault.getRoot();
+      if (!(root instanceof import_obsidian3.TFolder)) throw unavailable();
+      for (const [path, file] of walk(vault, [root], false, root).files) files.set(path, file);
+      continue;
+    }
+    if (!safeSyncPath(selectedPath, vault.configDir)) throw unavailable();
+    if (selected.some((parent) => parent !== selectedPath && parent !== "/" && selectedPath.startsWith(parent + "/"))) continue;
+    const folder = vault.getAbstractFileByPath(selectedPath);
+    if (!(folder instanceof import_obsidian3.TFolder) || folder.path !== selectedPath) throw unavailable();
+    starts.push(folder);
+  }
+  for (const [path, file] of walk(vault, starts, true).files) files.set(path, file);
+  return [...files.values()];
+}
+function selectableVaultFolders(vault) {
+  const root = vault.getRoot();
+  if (!(root instanceof import_obsidian3.TFolder)) throw unavailable();
+  return [...walk(vault, [root], true, root, false).folders.values()];
 }
 
 // src/plugin-types.ts
@@ -5833,7 +5892,7 @@ var NoteCloudPlugin = class extends h.Plugin {
   fileInScope(t) {
     return this.settings.syncAllFolders ? true : this.settings.selectedFolders.some((e) => e === "/" ? !t.includes("/") : t.startsWith(`${e}/`));
   }
-  files(allFiles = this.app.vault.getFiles()) {
+  files(allFiles = scopedVaultFiles(this.app.vault, this.settings)) {
     return allFiles.filter((t) => SUPPORTED_EXTENSIONS.has(t.extension.toLowerCase()) && safeSyncPath(t.path, this.app.vault.configDir) && this.fileInScope(t.path));
   }
   isMarkdown(t) {
@@ -6053,7 +6112,7 @@ var NoteCloudPlugin = class extends h.Plugin {
       if (manifest.syncWritesAllowed === false || ((_a2 = this.settings.account) == null ? void 0 : _a2.syncWritesAllowed) === false)
         throw new ServiceError("\u4ED8\u8D39\u6269\u5BB9\u5DF2\u5230\u671F\u4E14\u8D85\u51FA\u6C38\u4E45\u989D\u5EA6\uFF0C\u540C\u6B65\u5DF2\u6682\u505C\u3002\u4ECD\u53EF\u5728\u7F51\u9875\u6D4F\u89C8\u3001\u4E0B\u8F7D\u548C\u6E05\u7406\uFF1B\u7EED\u8D39\u540E\u81EA\u52A8\u6062\u590D\u3002", 402);
       const remote = new Map(manifest.files.filter((file) => safeSyncPath(file.path, this.app.vault.configDir) && SUPPORTED_EXTENSIONS.has((file.path.split(".").pop() || "").toLowerCase()) && this.fileInScope(file.path)).map((file) => [file.path, file]));
-      const allFiles = this.app.vault.getFiles(), localPaths = new Set(allFiles.map((file) => file.path));
+      const allFiles = scopedVaultFiles(this.app.vault, this.settings), localPaths = new Set(allFiles.map((file) => file.path));
       const limit = Math.min((this.settings.maxFileSizeMB || (h.Platform.isMobile ? 50 : 200)) * 1024 * 1024, ((_b = this.settings.serviceStatus) == null ? void 0 : _b.maxUploadBytes) || Infinity);
       const files = this.files(allFiles);
       const jobs = files.filter((file) => file.stat.size <= limit).map((file) => ({ file, path: file.path, size: file.stat.size }));
@@ -6343,7 +6402,13 @@ var NoteCloudSettingsTab = class extends h.PluginSettingTab {
         await this.persist();
       }
     }));
-    let folders = this.app.vault.getAllLoadedFiles().filter((b) => b instanceof h.TFolder && b.path).sort((b, v) => b.path.localeCompare(v.path)), items = [{ path: "/", name: "\u6839\u76EE\u5F55\u6587\u4EF6" }, ...folders.map((b) => ({ path: b.path, name: b.path }))];
+    let folders = [];
+    try {
+      folders = selectableVaultFolders(this.app.vault).sort((b, v) => b.path.localeCompare(v.path));
+    } catch (e2) {
+      new h.Setting(e).setName("\u6587\u4EF6\u5939\u5217\u8868\u6682\u4E0D\u53EF\u7528").setDesc("\u4ED3\u5E93\u76EE\u5F55\u5C1A\u672A\u5C31\u7EEA\u6216\u53D1\u751F\u53D8\u5316\uFF0C\u8BF7\u7A0D\u540E\u91CD\u65B0\u6253\u5F00\u8BBE\u7F6E\u3002\u73B0\u6709\u540C\u6B65\u8303\u56F4\u4E0D\u4F1A\u6539\u53D8\u3002");
+    }
+    const items = [{ path: "/", name: "\u6839\u76EE\u5F55\u6587\u4EF6" }, ...folders.map((b) => ({ path: b.path, name: b.path }))];
     for (let item of items)
       new h.Setting(e).setName(item.name).addToggle((b) => {
         {
@@ -6358,9 +6423,12 @@ var NoteCloudSettingsTab = class extends h.PluginSettingTab {
       });
     e.createEl("h3", { text: "\u6587\u4EF6\u5904\u7406" });
     let serverMaxMb = Math.max(1, Math.floor((((_a2 = s.serviceStatus) == null ? void 0 : _a2.maxUploadBytes) || 200 * 1024 * 1024) / 1024 / 1024));
-    new h.Setting(e).setName("\u5927\u6587\u4EF6\u4E0A\u4F20\u4E0A\u9650").setDesc(`\u8D85\u8FC7 ${s.maxFileSizeMB} MB \u7684\u6587\u4EF6\u6682\u4E0D\u540C\u6B65\uFF1B\u670D\u52A1\u7AEF\u5F53\u524D\u4E0A\u9650 ${serverMaxMb} MB\u3002\u79FB\u52A8\u7AEF\u5EFA\u8BAE\u4FDD\u6301 50 MB \u4EE5\u4E0B`).addSlider((b) => b.setLimits(1, serverMaxMb, 1).setDynamicTooltip().setValue(Math.min(s.maxFileSizeMB, serverMaxMb)).onChange(async (v) => {
+    const fileSizeDescription = () => `\u8D85\u8FC7 ${s.maxFileSizeMB} MB \u7684\u6587\u4EF6\u6682\u4E0D\u540C\u6B65\uFF1B\u670D\u52A1\u7AEF\u5F53\u524D\u4E0A\u9650 ${serverMaxMb} MB\u3002\u79FB\u52A8\u7AEF\u5EFA\u8BAE\u4FDD\u6301 50 MB \u4EE5\u4E0B`;
+    const fileSizeSetting = new h.Setting(e).setName("\u5927\u6587\u4EF6\u4E0A\u4F20\u4E0A\u9650").setDesc(fileSizeDescription());
+    fileSizeSetting.addSlider((b) => b.setLimits(1, serverMaxMb, 1).setValue(Math.min(s.maxFileSizeMB, serverMaxMb)).onChange(async (v) => {
       {
         s.maxFileSizeMB = v;
+        fileSizeSetting.setDesc(fileSizeDescription());
         await this.persist();
       }
     }));

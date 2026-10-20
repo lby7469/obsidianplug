@@ -1,6 +1,6 @@
 {
   "name": "notecloud-sync",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "license": "MIT",
   "private": true,
   "scripts": {
@@ -8,7 +8,7 @@
     "check": "tsc --noEmit",
     "lint": "eslint \"src/**/*.ts\"",
     "test:release": "node tools/check-release.mjs",
-    "test": "node src/sync-regression.cjs && node src/community-regression.cjs && node src/reliability-regression.cjs && node src/renewal-regression.cjs && node src/market-regression.cjs && node src/announcement-safety-regression.cjs && node src/review-regression.cjs"
+    "test": "node src/sync-regression.cjs && node src/community-regression.cjs && node src/reliability-regression.cjs && node src/renewal-regression.cjs && node src/market-regression.cjs && node src/announcement-safety-regression.cjs && node src/review-regression.cjs && node src/slider-review-regression.cjs && node src/vault-scope-regression.cjs"
   },
   "dependencies": {
     "dompurify": "3.4.17",

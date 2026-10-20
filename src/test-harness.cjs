@@ -13,6 +13,9 @@ class TFile {
     this.content = Buffer.from(content); this.stat = { size: this.content.length, mtime: Date.now() };
   }
 }
+class TFolder {
+  constructor(path) { this.path = path; this.name = path.split('/').pop(); this.children = []; }
+}
 function harness({ bundle = path.join(__dirname, "../main.js"), files = [], latency = 0, mobile = false } = {}) {
   const notices = [], metrics = { requests: 0, reads: 0, saves: 0, routes: [], peak: 0, active: 0 };
   let network = async () => { throw Error("Unexpected network request in isolated test"); };
@@ -21,7 +24,7 @@ function harness({ bundle = path.join(__dirname, "../main.js"), files = [], late
     metrics.active++; metrics.peak = Math.max(metrics.peak, metrics.active);
     try { await delay(latency); return await network(url, options); } finally { metrics.active--; }
   }
-  const obsidian = { Plugin: class {}, PluginSettingTab: class {}, TFile, Platform: { isMobile: mobile },
+  const obsidian = { Plugin: class {}, PluginSettingTab: class {}, TFile, TFolder, Platform: { isMobile: mobile },
     Notice: class { constructor(value) { notices.push(value); } },
     requestUrl: async options => {
       const result = await request(options.url, { method: options.method, headers: { ...(options.contentType ? { "content-type": options.contentType } : {}), ...options.headers }, body: options.body });
@@ -31,10 +34,30 @@ function harness({ bundle = path.join(__dirname, "../main.js"), files = [], late
   const context = vm.createContext({ module: { exports: {} }, require: name => { assert.equal(name, "obsidian"); return obsidian; }, crypto: webcrypto, TextEncoder, TextDecoder, Uint8Array, ArrayBuffer, Headers, Error, btoa, console, URL, fetch: request, setTimeout, clearTimeout, window: { setTimeout, clearTimeout, setInterval, clearInterval, open() {} } });
   vm.runInContext(fs.readFileSync(bundle, "utf8"), context);
   const instance = new context.module.exports.default(), store = new Map(files.map(file => [file.path, file]));
+  const folders = new Map();
+  const folder = directory => {
+    if (!folders.has(directory)) {
+      const entry = new TFolder(directory);
+      Object.defineProperty(entry, 'children', { configurable: true, get() {
+        const entries = new Map(), prefix = directory ? directory + '/' : '';
+        for (const file of store.values()) {
+          if (!file.path.startsWith(prefix)) continue;
+          const relative = file.path.slice(prefix.length), slash = relative.indexOf('/');
+          if (!relative) continue;
+          const child = slash < 0 ? file : folder(prefix + relative.slice(0, slash));
+          entries.set(child.path, child);
+        }
+        return [...entries.values()];
+      } });
+      folders.set(directory, entry);
+    }
+    return folders.get(directory);
+  };
   instance.manifest = { version: "0.4.3" };
   instance.app = { vault: {
     configDir: ".obsidian", getName: () => "Isolated Test", getFiles: () => [...store.values()],
-    getAbstractFileByPath: path => store.get(path),
+    getRoot: () => folder(''),
+    getAbstractFileByPath: path => store.get(path) || folders.get(path) || ([...store.keys()].some(file => file.startsWith(path + '/')) ? folder(path) : undefined),
     readBinary: async file => { metrics.reads++; return bytes(file.content); },
     modifyBinary: async (file, content) => { file.content = Buffer.from(content); file.stat = { size: file.content.length, mtime: file.stat.mtime + 1 }; instance.markPending(file); },
     createBinary: async (path, content) => { assert.ok(!store.has(path)); const file = new TFile(path, Buffer.from(content)); store.set(path, file); instance.markPending(file); return file; },
@@ -45,4 +68,4 @@ function harness({ bundle = path.join(__dirname, "../main.js"), files = [], late
   instance.configureAutoSync = () => {};
   return { instance, store, metrics, notices, support: () => testModule("sync-support.ts"), setNetwork: value => { network = value; } };
 }
-module.exports = { harness, TFile, bytes, digest, delay };
+module.exports = { harness, TFile, TFolder, bytes, digest, delay };

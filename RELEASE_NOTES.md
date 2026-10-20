@@ -1,3 +1,15 @@
+# NoteCloud Sync 0.4.8
+
+- Remove the deprecated `setDynamicTooltip()` call. The selected upload limit remains visible and updates immediately using long-supported settings APIs.
+- Discover files only below selected folders instead of listing the whole vault for a selected-folder sync. Root-only selection stays root-only; overlapping selections are deduplicated.
+- Inspect folder entries, not every file path, when building the settings folder picker. Exclude configuration and trash subtrees.
+- Pause sync if a selected folder is unavailable or its tree changes unreliably, rather than interpreting a failed scan as cloud deletion. Existing path snapshots, final existence checks, file-type/size limits and conflict protection remain.
+- Keep honest whole-vault enumeration in all-folders mode. This is a necessary synchronization capability, not a per-folder permission sandbox, and its informational recommendation may remain.
+
+保留原插件ID、双仓库下载和所有旧版。已增加滑块实际配置与范围扫描/误删保护回归；真实设备及最低版本兼容仍需验证，最终自动审核以目录为准。
+
+---
+
 # NoteCloud Sync 0.4.7
 
 - Upgrade DOMPurify to 3.4.17, outside the reported vulnerable range, and update the lockfile and bundled license notice.

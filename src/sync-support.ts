@@ -17,7 +17,7 @@ export function base64(bytes: ArrayBuffer) {
   return btoa(binary);
 }
 export function safeSyncPath(path: string, configDir: string): boolean {
-  return !!path && !path.includes(String.fromCharCode(92)) && !path.split("/").some(part => !part || part === "." || part === "..") && path !== configDir && !path.startsWith(configDir + "/") && !path.startsWith(".trash/");
+  return !!path && !path.includes(String.fromCharCode(92)) && !path.split("/").some(part => !part || part === "." || part === "..") && path !== configDir && !path.startsWith(configDir + "/") && path !== ".trash" && !path.startsWith(".trash/");
 }
 // Wait for every started job before returning; bound simultaneous in-memory files.
 export async function runBounded<T>(items: T[], limit: number, bytes: (item: T) => number, budget: number, work: (item: T) => Promise<void>, stopped: () => boolean) {

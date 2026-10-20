@@ -49,9 +49,13 @@ Markdown conflicts use a three-way merge where possible. If it cannot merge safe
 
 ## Why the plugin enumerates vault files
 
-Obsidian's `vault.getFiles()` supplies file paths and metadata so synchronization can discover supported files, folder choices and local changes. A separate path set also prevents unsafe assumptions about local files while applying remote changes. This API exposes all file paths in the active vault to the plugin; it is not a claim of sandboxed per-folder permission.
+When **all folders** is enabled, Obsidian's `vault.getFiles()` supplies the vault-wide file snapshot needed to synchronize all files. This remains a real enumeration capability and may appear as a directory recommendation.
 
-Before reading a file's content for upload, the plugin checks the supported extension, safe path, configured sync scope and file-size limit. Files outside the selected scope are not uploaded by sync. Enumerating paths does not upload every file, and removing the API call just to silence a review would hide an essential part of the sync design. Do not enable cloud sync in a vault you do not want the plugin to access.
+When you select **specific folders**, the plugin resolves only those folders through the public Vault API and walks their cached child trees; it does not call the whole-vault file-list APIs for that sync. Selecting `/` includes root-level files only, not every subfolder. Nested and duplicate selections are deduplicated. The folder picker inspects folder entries only when settings are opened and skips the configuration and trash subtrees.
+
+One in-scope path snapshot protects against unsafe deletion assumptions, and remote changes are checked again against the current local path before applying. If a selected folder is missing, moved or cannot be read reliably, the sync pauses rather than treating that failure as an empty folder and deleting cloud files. Restore the folder or reselect your sync scope, then retry; removing a whole selected folder is not treated as permission to erase its cloud copy.
+
+Before reading a file's content for upload, the plugin checks the supported extension, safe path, configured sync scope and file-size limit. Files outside the selected scope are not uploaded by sync. Narrower discovery is not an Obsidian permission sandbox: plugins still run with Vault API access. Enumerating paths does not upload every file, and merely renaming an API call would not remove this capability. Do not enable cloud sync in a vault you do not want the plugin to access.
 
 ## Contributors and project origin
 
@@ -162,7 +166,7 @@ npm test
 
 发布文件为 `main.js`、`manifest.json`、`styles.css` 和 `versions.json`。可通过 BRAT 使用仓库 `lby7469/obsidianplug`，也可以手动复制到 Vault 的 `.obsidian/plugins/notecloud-sync/`。
 
-源码已整理为严格 TypeScript：同步、账号及界面位于 `src/main.ts`，网络 / 缓存边界位于 `src/plugin-types.ts`，三方合并位于 `src/merge.ts`。修改源码后重新构建，不直接编辑 `main.js`。本地按官方 ESLint 推荐规则检查（仅添加 NoteCloud / BRAT 品牌词配置，不关闭规则）；旧版滑块动态提示 API 保留一条弃用警告，以维持声明的最低版本兼容。
+源码已整理为严格 TypeScript：同步、账号及界面位于 `src/main.ts`，网络 / 缓存边界位于 `src/plugin-types.ts`，范围发现位于 `src/vault-scope.ts`，三方合并位于 `src/merge.ts`。修改源码后重新构建，不直接编辑 `main.js`。本地按官方 ESLint 推荐规则检查（仅添加 NoteCloud / BRAT 品牌词配置，不关闭规则）；不调用已弃用的滑块动态提示 API，改在现有说明中实时展示当前数值，兼容旧版界面。
 
 `npm test` 使用虚构数据，覆盖同步 / 冲突、账号隔离、取消、容量刷新、公告、续费、损坏缓存、分行兼容及真实 DOM 安全渲染；不连接正式用户仓库。静态检查和模拟测试不等于所有平台真机验收。最低声明版本为 1.5.0，具体设备首次使用仍请先用已备份的测试仓库验证。
 
