@@ -8,7 +8,7 @@ const flag = process.argv.find(value => value.startsWith('--outfile='));
 const outfile = flag ? path.resolve(flag.slice('--outfile='.length)) : path.join(root, 'main.js');
 const notices = [
   ['NoteCloud Sync — MIT License (plugin client only)', 'LICENSE'],
-  ['DOMPurify 3.4.14 — Copyright (c) Cure53 and other contributors; redistributed under Apache-2.0', 'licenses/DOMPurify-Apache-2.0.txt'],
+  ['DOMPurify 3.4.17 — Copyright (c) Cure53 and other contributors; redistributed under Apache-2.0', 'licenses/DOMPurify-Apache-2.0.txt'],
   ['Marked 15.0.12 — MIT / Markdown attribution', 'licenses/Marked-LICENSE.md'],
   ['node-diff3 / Synchrotron-derived merge code — MIT; restored / adapted implementation', 'licenses/node-diff3-LICENSE.md'],
 ].map(([name, file]) => name + '\n' + fs.readFileSync(path.join(root, file), 'utf8').replace(/\r\n/g, '\n'));

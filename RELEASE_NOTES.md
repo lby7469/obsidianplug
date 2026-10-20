@@ -1,3 +1,16 @@
+# NoteCloud Sync 0.4.7
+
+- Upgrade DOMPurify to 3.4.17, outside the reported vulnerable range, and update the lockfile and bundled license notice.
+- Add English installation, basic usage, privacy and original-author/contributor information while retaining the Chinese guide.
+- Remove the renewal control's `!important`; test that hidden controls stay hidden and can reappear correctly.
+- Reuse one vault file snapshot per sync instead of enumerating twice. Supported type, safe path, selected-folder and file-size checks remain in place; the necessary vault enumeration capability is explicitly disclosed.
+- Add a pinned, maintainer-triggered GitHub Actions build/test/provenance workflow. It creates only a draft and does not overwrite historical release assets.
+- Resolve the development checker's nested Moment advisory with a scoped override, without downgrading the checker or changing runtime Obsidian dependencies.
+
+插件 ID、旧下载地址、同步协议和用户 `data.json` 保持不变。原作者 [lby7469](https://github.com/lby7469) 的贡献与公开维护授权继续保留。目录仍可能提示必要的仓库枚举能力；这不等于上传未选择的文件。新版本是否通过自动审核，以目录实际结果为准；本地回归不等于所有平台真机验收。
+
+---
+
 # NoteCloud Sync 0.4.6
 
 - 为官方社区插件目录准备资料，明确独立产品身份、需要账号 / 网络、免费容量及可能收费的扩容。

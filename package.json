@@ -1,6 +1,6 @@
 {
   "name": "notecloud-sync",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "license": "MIT",
   "private": true,
   "scripts": {
@@ -8,10 +8,10 @@
     "check": "tsc --noEmit",
     "lint": "eslint \"src/**/*.ts\"",
     "test:release": "node tools/check-release.mjs",
-    "test": "node src/sync-regression.cjs && node src/community-regression.cjs && node src/reliability-regression.cjs && node src/renewal-regression.cjs && node src/market-regression.cjs && node src/announcement-safety-regression.cjs"
+    "test": "node src/sync-regression.cjs && node src/community-regression.cjs && node src/reliability-regression.cjs && node src/renewal-regression.cjs && node src/market-regression.cjs && node src/announcement-safety-regression.cjs && node src/review-regression.cjs"
   },
   "dependencies": {
-    "dompurify": "3.4.14",
+    "dompurify": "3.4.17",
     "marked": "15.0.12"
   },
   "devDependencies": {
@@ -22,5 +22,10 @@
     "jsdom": "30.1.2",
     "obsidian": "1.14.4",
     "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "eslint-plugin-obsidianmd": {
+      "moment": "2.31.0"
+    }
   }
 }

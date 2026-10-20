@@ -4,7 +4,7 @@
 
 | 组件 | 用途 | 许可 / 上游 |
 | --- | --- | --- |
-| DOMPurify 3.4.14 | 清理公告 Markdown 产生的 HTML | Apache-2.0 OR MPL-2.0；[上游](https://github.com/cure53/DOMPurify)，完整已安装许可见 [licenses/DOMPurify-Apache-2.0.txt](licenses/DOMPurify-Apache-2.0.txt) 与 [licenses/DOMPurify-MPL-2.0.txt](licenses/DOMPurify-MPL-2.0.txt) |
+| DOMPurify 3.4.17 | 清理公告 Markdown 产生的 HTML | Apache-2.0 OR MPL-2.0；[上游](https://github.com/cure53/DOMPurify)，完整已安装许可见 [licenses/DOMPurify-Apache-2.0.txt](licenses/DOMPurify-Apache-2.0.txt) 与 [licenses/DOMPurify-MPL-2.0.txt](licenses/DOMPurify-MPL-2.0.txt) |
 | Marked 15.0.12 | 公告 Markdown 解析 | MIT，包含 Markdown 来源归属；[上游](https://github.com/markedjs/marked)，[完整已安装许可](licenses/Marked-LICENSE.md) |
 | node-diff3 / Synchrotron | `src/merge.ts` 中恢复并整理的最长公共子序列及三方合并实现 | MIT；[上游](https://github.com/bhousel/node-diff3)，[完整许可](licenses/node-diff3-LICENSE.md)，[3.1.2 上游参照](https://github.com/bhousel/node-diff3/blob/v3.1.2/LICENSE.md) |
 

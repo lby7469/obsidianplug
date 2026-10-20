@@ -1,10 +1,94 @@
-# NoteCloud Sync 0.4.6
+# NoteCloud Sync
+
+Sync notes with a NoteCloud account, preserve folders, and read or share notes on the web. NoteCloud Sync is an independent community plugin, not an Obsidian product or the official Obsidian Sync service. It is designed for desktop and mobile, but has not been tested on every supported device or on the declared minimum Obsidian version.
+
+## Installation
+
+Back up your vault before the first sync. Cloud sync is not a replacement for an independent backup.
+
+### Obsidian Community plugins
+
+1. Open **Settings → Community plugins** in Obsidian and select **Browse**.
+2. Search for **NoteCloud Sync**. If the entry is available to your client, select **Install**, then **Enable**.
+3. Open **Settings → NoteCloud Sync** and follow the basic usage steps below.
+
+The directory entry has been submitted and its automated review may still be in progress. If the plugin is not available in your client's directory yet, use either of the following installation methods. A published GitHub release is not proof that all directory checks have passed.
+
+### BRAT / existing users
+
+1. Install and enable **BRAT** from Obsidian's Community plugins browser.
+2. In BRAT, choose **Add Beta plugin** and enter `lby7469/obsidianplug`, or `https://github.com/Yinds0270/NoteCloud` for the new distribution repository.
+3. Enable **NoteCloud Sync** in Community plugins. Do not install both repositories into the same vault: both use the plugin ID `notecloud-sync`.
+
+The original `lby7469/obsidianplug` URL remains available; existing users do not need to change it. Obsidian or BRAT manages updates. This plugin does not install or update itself or its dependencies.
+
+### Manual installation
+
+1. Download `main.js`, `manifest.json`, and `styles.css` from a [GitHub release](https://github.com/Yinds0270/NoteCloud/releases).
+2. Close Obsidian and put the three files in `<vault>/.obsidian/plugins/notecloud-sync/` (use your actual configuration directory if customized).
+3. Reopen Obsidian and enable **NoteCloud Sync**. When upgrading, replace only these three files; do not overwrite or share your existing `data.json`.
+
+## Basic usage
+
+1. Open **Settings → NoteCloud Sync** and choose **Login**. Account actions open the NoteCloud website; create an account there if needed.
+2. Authorize the current device in your browser. The one-time `obsidian://notecloud-auth` callback returns to Obsidian. The plugin stores revocable device tokens, not your account password.
+3. Before syncing, choose **all folders** or select specific folders, check the file-size limit and conflict strategy, and decide whether to keep automatic sync enabled. Automatic sync defaults to every five minutes after login; you can turn it off and use manual sync.
+4. Run a manual sync with a backed-up test folder first. Check both local files and your web vault before expanding the selection. Switching accounts clears the previous account's sync baseline, pauses automatic sync, and asks for confirmation before the first manual sync to the new account.
+5. Read notes or manage sharing at [notecloud.asia](https://notecloud.asia). Link sharing and public community submissions are separate choices; do not share private notes unintentionally.
+
+Markdown conflicts use a three-way merge where possible. If it cannot merge safely, the default is to keep a local conflict copy. TXT and common attachments are supported as well as Markdown; see the [detailed user guide in Chinese](USER_GUIDE.md) for file types, limits, conflict handling, announcements, renewal notices, and troubleshooting.
+
+## Account, payment and privacy
+
+- Cloud features require a **NoteCloud account and an internet connection**. New accounts start with a limited free tier (currently 100 MB); extra storage may require payment. Selected early users may have a different permanent allowance. The plugin is not an unlimited free-storage offer.
+- `https://api.notecloud.asia` handles device authorization, tokens, synchronization, quota, feedback, version checks and announcements. `https://notecloud.asia` provides browser account actions and the web vault. The public service currently uses a Cloudflare entry point.
+- Sync uploads supported files in the configured scope, their relative paths, sizes, hashes and modification times. Markdown synchronization also includes Wiki Link, embed, outgoing-link and alias metadata. Version and service checks send the plugin version and desktop/mobile category; announcements are checked on startup and periodically while running.
+- There is **no client-side analytics SDK or advertising**. The server keeps operational/security logs such as request times, paths, IP addresses and results. Feedback sends the fields you enter, not your private note contents automatically.
+- Runtime file access uses Obsidian's Vault API, not Node.js or Electron file-system access. The Obsidian configuration directory and trash are excluded from sync. Do not publish plugin configuration or device tokens.
+- HTTPS protects data in transit, but this is **not end-to-end encrypted**. Operators with server access can potentially read online files. Restic backup encryption does not remove access for people holding the server permissions or backup keys. Read [PRIVACY.md](PRIVACY.md) before connecting a vault.
+
+## Why the plugin enumerates vault files
+
+Obsidian's `vault.getFiles()` supplies file paths and metadata so synchronization can discover supported files, folder choices and local changes. A separate path set also prevents unsafe assumptions about local files while applying remote changes. This API exposes all file paths in the active vault to the plugin; it is not a claim of sandboxed per-folder permission.
+
+Before reading a file's content for upload, the plugin checks the supported extension, safe path, configured sync scope and file-size limit. Files outside the selected scope are not uploaded by sync. Enumerating paths does not upload every file, and removing the API call just to silence a review would hide an essential part of the sync design. Do not enable cloud sync in a vault you do not want the plugin to access.
+
+## Contributors and project origin
+
+Original author and contributor: [lby7469](https://github.com/lby7469). Current distribution maintainer: [Yinds0270](https://github.com/Yinds0270). The original author's [public written authorization](https://github.com/lby7469/obsidianplug/blob/main/MAINTAINERS.md) permits continued maintenance, releases and directory submission from this repository. See [MAINTAINERS.md](MAINTAINERS.md).
+
+Contributor credit does not grant repository or directory administration rights. The client is MIT-licensed; all applicable third-party licenses and attribution are retained. Server source, credentials and user data are not included in the client license.
+
+## Development
+
+The maintainer-triggered release workflow builds and tests the source on GitHub Actions, generates artifact provenance for the three build outputs, and creates a draft for download verification. It does not modify previous releases. To verify an attested release after downloading its assets, use the GitHub CLI:
+
+```sh
+gh attestation verify main.js --repo Yinds0270/NoteCloud
+gh attestation verify manifest.json --repo Yinds0270/NoteCloud
+gh attestation verify styles.css --repo Yinds0270/NoteCloud
+```
+
+Older manually published versions may not have attestations. Verification establishes build provenance, not a guarantee that software is bug-free or that every device has been tested.
+
+```sh
+npm ci --ignore-scripts
+npm run check
+npm run lint
+npm run build
+npm test
+npm run test:release
+```
+
+Build the reviewable TypeScript source rather than editing `main.js`. Tests use isolated fixtures, not production user vaults. Release assets are `main.js`, `manifest.json`, and `styles.css`; the release tag must exactly match the manifest version without a `v` prefix.
+
+## 中文说明
 
 NoteCloud Sync 是无需 Git 配置的 Obsidian 云同步插件，面向桌面和移动端设计。云端保留文件夹层级，网页可阅读笔记、仅链接分享或投稿到首页。
 
 NoteCloud Sync is an independent community plugin, not an Obsidian product or the official Obsidian Sync service. A NoteCloud account and an internet connection are required for cloud features. A limited free storage tier is available; additional storage may require payment. Please read the [data handling and privacy information](PRIVACY.md) before connecting a vault.
 
-本插件由 NoteCloud 独立提供，与 Obsidian 官方及官方 Obsidian Sync 服务无隶属关系。**云端功能需要 NoteCloud 账号和网络连接；免费容量有限，额外扩容可能收费。** 本地阅读 Obsidian 笔记不需要本服务。当前仍通过 BRAT / 手动安装，官方插件目录的提交和审核尚未完成，不能在官方目录中宣称已可安装。
+本插件由 NoteCloud 独立提供，与 Obsidian 官方及官方 Obsidian Sync 服务无隶属关系。**云端功能需要 NoteCloud 账号和网络连接；免费容量有限，额外扩容可能收费。** 本地阅读 Obsidian 笔记不需要本服务。现已提交官方插件目录，自动检查仍在进行；可安装范围与审核状态以实际目录页面为准，BRAT / 手动下载继续保留。
 
 开始使用：Obsidian 设置 → 第三方插件 → 安装并启用 BRAT → 在 BRAT 添加 `lby7469/obsidianplug` → 启用 NoteCloud Sync → 插件设置里登录 → 先备份，再选择文件夹同步。
 
@@ -88,4 +172,4 @@ npm test
 
 ## 许可证与第三方组件
 
-插件客户端采用 [MIT License](LICENSE)，不因此为独立服务端、运维配置或用户数据授予任何开源许可。Markdown 公告使用 DOMPurify 和 Marked；三方合并代码基于 node-diff3 / Synchrotron 算法实现。来源和完整许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。构建会把客户端及已打包组件的必要许可正文保留在 `main.js` 注释中。官方目录尚未审核通过；GitHub 发布与官方上架是两件事，审核完成前仍按本页 BRAT / 手动方式安装。
+插件客户端采用 [MIT License](LICENSE)，不因此为独立服务端、运维配置或用户数据授予任何开源许可。Markdown 公告使用 DOMPurify 和 Marked；三方合并代码基于 node-diff3 / Synchrotron 算法实现。来源和完整许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。构建会把客户端及已打包组件的必要许可正文保留在 `main.js` 注释中。GitHub 发布、目录展示与自动审核通过是不同状态，最新审核结果以目录页面为准。

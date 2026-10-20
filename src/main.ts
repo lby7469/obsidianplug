@@ -667,8 +667,8 @@ export default class NoteCloudPlugin extends h.Plugin {
     fileInScope(t: string) {
         return this.settings.syncAllFolders ? true : this.settings.selectedFolders.some((e) => e === "/" ? !t.includes("/") : t.startsWith(`${e}/`));
     }
-    files() {
-        return this.app.vault.getFiles().filter((t) => SUPPORTED_EXTENSIONS.has(t.extension.toLowerCase()) && support.safeSyncPath(t.path, this.app.vault.configDir) && this.fileInScope(t.path));
+    files(allFiles: readonly h.TFile[] = this.app.vault.getFiles()) {
+        return allFiles.filter((t) => SUPPORTED_EXTENSIONS.has(t.extension.toLowerCase()) && support.safeSyncPath(t.path, this.app.vault.configDir) && this.fileInScope(t.path));
     }
     isMarkdown(t: string) {
         return /\.(md|markdown)$/i.test(t);
@@ -904,7 +904,7 @@ export default class NoteCloudPlugin extends h.Plugin {
             const remote = new Map(manifest.files.filter(file => support.safeSyncPath(file.path, this.app.vault.configDir) && SUPPORTED_EXTENSIONS.has((file.path.split(".").pop() || "").toLowerCase()) && this.fileInScope(file.path)).map(file => [file.path, file]));
             const allFiles = this.app.vault.getFiles(), localPaths = new Set(allFiles.map(file => file.path));
             const limit = Math.min((this.settings.maxFileSizeMB || (h.Platform.isMobile ? 50 : 200)) * 1024 * 1024, this.settings.serviceStatus?.maxUploadBytes || Infinity);
-            const files = this.files();
+            const files = this.files(allFiles);
             const jobs = files.filter(file => file.stat.size <= limit).map(file => ({ file, path: file.path, size: file.stat.size }));
             skipped = files.length - jobs.length;
             await support.runBounded(jobs, h.Platform.isMobile ? 1 : 2, job => job.size, (h.Platform.isMobile ? 16 : 32) * 1024 * 1024, async (job) => {

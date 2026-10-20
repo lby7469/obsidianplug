@@ -4,7 +4,7 @@
 
 ## 双账号与原地址保留
 
-- 官方目录计划使用 `https://github.com/Yinds0270/NoteCloud`，维护者的 Obsidian 账号已关联 `Yinds0270`。
+- 用户已从关联 `Yinds0270` 的 Obsidian 账号提交 `https://github.com/Yinds0270/NoteCloud`，报告条目已展示、0.4.6 自动检查仍在进行；这不是所有检查通过的证明。本轮0.4.7针对其警告修复。
 - 原仓库 `https://github.com/lby7469/obsidianplug` 保留并继续提供 BRAT / Release 下载，不改名、不转移，不覆盖旧标签和旧版附件。
 - 原维护者对新账号的公开授权见 [MAINTAINERS.md](MAINTAINERS.md)。保留项目来源与第三方许可；不是隐瞒来源的新插件。
 - 两处使用同一个插件 ID `notecloud-sync`，每个版本的三个安装文件应逐字节一致。只提交一个官方目录条目。
@@ -19,7 +19,7 @@
 | ID | `notecloud-sync`，仍由目录核验唯一性 |
 | Name | `NoteCloud Sync` |
 | Description | `Sync notes with a NoteCloud account, preserve folders, and read or share notes on the web.` |
-| Version | `0.4.6` |
+| Version | `0.4.7` |
 | Declared minimum app version | `1.5.0`；静态检查不代表所有设备真机已验收 |
 | Desktop only | `false`；运行时不依赖 Node.js / Electron |
 | Payment | Optional payment：有限免费容量，额外扩容可能收费 |
@@ -41,7 +41,7 @@ npm run build
 npm test
 ```
 
-- 版本标签必须与 manifest 完全一致：`0.4.6`，不是 `v0.4.6`。
+- 版本标签必须与 manifest 完全一致：`0.4.7`，不是 `v0.4.7`。保留所有旧标签与附件，不覆盖0.4.6来伪装新审核结果。
 - 默认分支、版本标签、Release 附件的 manifest 版本一致；附件为 `main.js`、`manifest.json`、`styles.css`。
 - 本次严格 TypeScript 和官方推荐规则本地预查通过，0 error；为兼容旧版滑块动态值，保留1条 `setDynamicTooltip` 弃用 warning，未关闭规则。
 - 构建保留客户端与已打包第三方的完整许可。重建、同步 / 账号 / 公告 / 续费 / 缓存 / DOM 安全回归均已执行。
@@ -61,6 +61,8 @@ npm test
 4. 按实际 Manifest / Releases / Source / Build 审核结果整改；有结果才报告“已提交”或“已通过”，本地预查不代表官方通过。
 5. 目录允许安装后，再从 Obsidian 搜索、安装、登录和测试仓库同步验证，才改用户安装说明。
 6. 不沿用旧教程盲目向 community-plugins.json 提 PR，不为换账号更改插件 ID。后续正常版本通过 GitHub Release 更新，不重复提交多个条目。
+
+已提交后不用新建第二个条目。新Release发布后，在现有条目菜单选择 **Check for new releases** / **Request review**；**Review branch** 可先预览。给原作者公开署名可选择 **Add contributor**，不转移Owner、不授权编辑权限；必要时使用其Obsidian目录身份，而不是猜测GitHub账号一定能匹配。
 
 官方 [条目管理说明](https://docs.obsidian.md/community-directory/manage-entry) 指出 warning 不阻断提交；
 新版本检测或审核结果以官方实际页面为准。此插件不安装或更新自身；
