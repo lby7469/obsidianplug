@@ -53,6 +53,8 @@ When **all folders** is enabled, Obsidian's `vault.getFiles()` supplies the vaul
 
 When you select **specific folders**, the plugin resolves only those folders through the public Vault API and walks their cached child trees; it does not call the whole-vault file-list APIs for that sync. Selecting `/` includes root-level files only, not every subfolder. Nested and duplicate selections are deduplicated. The folder picker inspects folder entries only when settings are opened and skips the configuration and trash subtrees.
 
+The scope picker initially shows top-level folders only. Expand folders one level at a time, or use **Expand all / Collapse all**. Opening settings again starts collapsed. Expanding a folder only changes the display, not its sync selection; the separate root-files switch and your saved folder choices remain unchanged.
+
 One in-scope path snapshot protects against unsafe deletion assumptions, and remote changes are checked again against the current local path before applying. If a selected folder is missing, moved or cannot be read reliably, the sync pauses rather than treating that failure as an empty folder and deleting cloud files. Restore the folder or reselect your sync scope, then retry; removing a whole selected folder is not treated as permission to erase its cloud copy.
 
 Before reading a file's content for upload, the plugin checks the supported extension, safe path, configured sync scope and file-size limit. Files outside the selected scope are not uploaded by sync. Narrower discovery is not an Obsidian permission sandbox: plugins still run with Vault API access. Enumerating paths does not upload every file, and merely renaming an API call would not remove this capability. Do not enable cloud sync in a vault you do not want the plugin to access.
@@ -127,7 +129,7 @@ NoteCloud 插件本身不安装或更新自己，也不下载可执行依赖；�
 ## 同步能力
 
 - 手动同步与 1–60 分钟自动同步
-- 选择全部文件夹或指定文件夹
+- 选择全部文件夹或指定文件夹；默认仅展示顶层文件夹，可逐层展开，也可一键全部展开/收起。重新打开设置默认收起，折叠不影响已有同步选择。
 - Markdown 冲突自动三方合并；失败时默认保留本地冲突副本，也可选择本地优先或云端优先
 - TXT、Markdown（含 .markdown）、图片、PDF、音视频、Canvas 与常见办公附件
 - 小文件直传、桌面两路并发、大文件自适应分片（新服务端最多 4MiB）；失败分片最多重试两次（共三次尝试），已完成进度保留

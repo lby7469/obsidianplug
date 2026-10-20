@@ -4,7 +4,7 @@
 
 ## 双账号与原地址保留
 
-- 用户已从关联 `Yinds0270` 的 Obsidian 账号提交 `https://github.com/Yinds0270/NoteCloud`，报告条目已展示、0.4.6 自动检查仍在进行；这不是所有检查通过的证明。本轮0.4.7针对其警告修复。
+- 用户已从关联 `Yinds0270` 的 Obsidian 账号提交 `https://github.com/Yinds0270/NoteCloud`，最初报告条目已展示、0.4.6 自动检查进行中；这不是所有检查通过的证明。后续版本按实际反馈修复依赖、文档、界面与同步范围扫描，最新审核以原条目为准。
 - 原仓库 `https://github.com/lby7469/obsidianplug` 保留并继续提供 BRAT / Release 下载，不改名、不转移，不覆盖旧标签和旧版附件。
 - 原维护者对新账号的公开授权见 [MAINTAINERS.md](MAINTAINERS.md)。保留项目来源与第三方许可；不是隐瞒来源的新插件。
 - 两处使用同一个插件 ID `notecloud-sync`，每个版本的三个安装文件应逐字节一致。只提交一个官方目录条目。
@@ -19,7 +19,7 @@
 | ID | `notecloud-sync`，仍由目录核验唯一性 |
 | Name | `NoteCloud Sync` |
 | Description | `Sync notes with a NoteCloud account, preserve folders, and read or share notes on the web.` |
-| Version | `0.4.8` |
+| Version | `0.4.9` |
 | Declared minimum app version | `1.5.0`；静态检查不代表所有设备真机已验收 |
 | Desktop only | `false`；运行时不依赖 Node.js / Electron |
 | Payment | Optional payment：有限免费容量，额外扩容可能收费 |
@@ -41,9 +41,10 @@ npm run build
 npm test
 ```
 
-- 版本标签必须与 manifest 完全一致：`0.4.8`，不是 `v0.4.8`。保留所有旧标签与附件，不覆盖旧版来伪装新审核结果。
+- 版本标签必须与 manifest 完全一致：`0.4.9`，不是 `v0.4.9`。保留所有旧标签与附件，不覆盖旧版来伪装新审核结果。
 - 默认分支、版本标签、Release 附件的 manifest 版本一致；附件为 `main.js`、`manifest.json`、`styles.css`。
 - 0.4.8移除 `setDynamicTooltip`，用现有说明实时显示数值；不关闭规则。所选文件夹同步不调用全库文件枚举，全部同步仍保留必要能力及真实披露，不承诺仅因此消除能力提示。
+- 0.4.9默认折叠同步范围的子文件夹，可逐层展开或全部展开/收起；重新打开设置仍默认收起，展开状态与同步选择分离。
 - 构建保留客户端与已打包第三方的完整许可。重建、同步 / 账号 / 公告 / 续费 / 缓存 / DOM 安全回归均已执行。
 - 另用独立虚构用户服务端检查 PKCE、令牌刷新、直传 / 分片、赠送额度刷新、TXT 重复同步及下载哈希；不对正式用户数据做破坏性测试。
 - 最低 Obsidian 版本、Android 和 iOS 全平台真机仍待验收，不能宣传“全平台无故障”。

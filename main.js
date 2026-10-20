@@ -5101,6 +5101,120 @@ function selectableVaultFolders(vault) {
   return [...walk(vault, [root], true, root, false).folders.values()];
 }
 
+// src/folder-scope-ui.ts
+var import_obsidian4 = require("obsidian");
+var childrenSequence = 0;
+function renderFolderScope(container, folders, state, persist) {
+  const section = container.createDiv({ cls: "notecloud-folder-scope" });
+  const controls = [];
+  new import_obsidian4.Setting(section).setName("\u540C\u6B65\u6240\u6709\u6587\u4EF6\u5939").setClass("notecloud-all-folders").addToggle((toggle) => {
+    toggle.toggleEl.setAttribute("aria-label", "\u540C\u6B65\u6240\u6709\u6587\u4EF6\u5939");
+    toggle.setValue(state.syncAllFolders).onChange(async (value) => {
+      state.syncAllFolders = value;
+      for (const control of controls) control.setDisabled(value);
+      await persist();
+    });
+  });
+  const addSelection = (setting, path, label) => setting.addToggle((toggle) => {
+    controls.push(toggle);
+    toggle.toggleEl.setAttribute("aria-label", label);
+    toggle.setValue(state.selectedFolders.includes(path)).setDisabled(state.syncAllFolders).onChange(async (value) => {
+      state.selectedFolders = value ? [.../* @__PURE__ */ new Set([...state.selectedFolders, path])] : state.selectedFolders.filter((selected) => selected !== path);
+      await persist();
+    });
+  });
+  addSelection(new import_obsidian4.Setting(section).setName("\u6839\u76EE\u5F55\u6587\u4EF6").setDesc("\u4EC5\u540C\u6B65\u4ED3\u5E93\u6839\u76EE\u5F55\u4E0B\u7684\u6587\u4EF6\uFF0C\u4E0D\u5305\u62EC\u5B50\u6587\u4EF6\u5939\u3002").setClass("notecloud-root-files"), "/", "\u540C\u6B65\u6839\u76EE\u5F55\u6587\u4EF6");
+  section.createEl("p", { cls: "notecloud-folder-help", text: "\u52FE\u9009\u6587\u4EF6\u5939\u4F1A\u540C\u6B65\u5176\u5168\u90E8\u5B50\u6587\u4EF6\u5939\uFF1B\u5C55\u5F00\u6216\u6536\u8D77\u53EA\u5F71\u54CD\u663E\u793A\uFF0C\u4E0D\u6539\u53D8\u540C\u6B65\u9009\u62E9\u3002" });
+  const nodes = /* @__PURE__ */ new Map();
+  for (const folder of folders) {
+    const path = folder.path;
+    if (!nodes.has(path)) nodes.set(path, { path, name: path.slice(path.lastIndexOf("/") + 1), children: [] });
+  }
+  const roots = [];
+  for (const node of nodes.values()) {
+    const split = node.path.lastIndexOf("/");
+    const parent = split < 0 ? void 0 : nodes.get(node.path.slice(0, split));
+    if (parent) parent.children.push(node);
+    else roots.push(node);
+  }
+  const compare = (left, right) => left.path.localeCompare(right.path);
+  roots.sort(compare);
+  for (const node of nodes.values()) node.children.sort(compare);
+  const toolbar = section.createDiv({ cls: "notecloud-folder-toolbar" });
+  toolbar.setAttribute("role", "group");
+  toolbar.setAttribute("aria-label", "\u6587\u4EF6\u5939\u5C55\u5F00\u63A7\u5236");
+  const expandAll = toolbar.createEl("button", { type: "button", text: "\u5168\u90E8\u5C55\u5F00" });
+  const collapseAll = toolbar.createEl("button", { type: "button", text: "\u5168\u90E8\u6536\u8D77" });
+  const hasBranches = roots.some((node) => node.children.length > 0);
+  expandAll.disabled = !hasBranches;
+  collapseAll.disabled = !hasBranches;
+  const tree = section.createEl("ul", { cls: "notecloud-folder-tree" });
+  tree.setAttribute("aria-label", "\u540C\u6B65\u6587\u4EF6\u5939");
+  const expanded = /* @__PURE__ */ new Set();
+  const views = /* @__PURE__ */ new Map();
+  const setExpanded = (view, open2) => {
+    if (!view.button || !view.childrenEl) return;
+    if (open2 && !view.childrenRendered) {
+      renderNodes(view.node.children, view.childrenEl);
+      view.childrenRendered = true;
+    }
+    if (open2) expanded.add(view.node.path);
+    else expanded.delete(view.node.path);
+    view.childrenEl.hidden = !open2;
+    view.button.setAttribute("aria-expanded", String(open2));
+    view.button.setAttribute("aria-label", `${open2 ? "\u6536\u8D77" : "\u5C55\u5F00"}\u6587\u4EF6\u5939\uFF1A${view.node.path}`);
+    view.button.classList.toggle("is-expanded", open2);
+  };
+  const renderNodes = (children, list2) => {
+    for (const node of children) {
+      const item = list2.createEl("li", { cls: "notecloud-folder-node" });
+      item.dataset.folderPath = node.path;
+      const setting = new import_obsidian4.Setting(item).setName(node.name).setClass("notecloud-folder-row");
+      setting.nameEl.title = node.path;
+      addSelection(setting, node.path, `\u540C\u6B65\u6587\u4EF6\u5939\uFF1A${node.path}`);
+      const view = { node, childrenRendered: false };
+      views.set(node.path, view);
+      if (node.children.length) {
+        const childList = item.createEl("ul", { cls: "notecloud-folder-children" });
+        childList.id = `notecloud-folder-children-${++childrenSequence}`;
+        childList.hidden = true;
+        childList.setAttribute("aria-label", `${node.path} \u7684\u5B50\u6587\u4EF6\u5939`);
+        const button = setting.settingEl.createEl("button", { type: "button", cls: "notecloud-folder-expand" });
+        button.setAttribute("aria-controls", childList.id);
+        button.setAttribute("aria-expanded", "false");
+        button.setAttribute("aria-label", `\u5C55\u5F00\u6587\u4EF6\u5939\uFF1A${node.path}`);
+        const chevron = button.createSpan({ cls: "notecloud-folder-chevron", text: "\u203A" });
+        chevron.setAttribute("aria-hidden", "true");
+        setting.settingEl.insertBefore(button, setting.settingEl.firstChild);
+        view.button = button;
+        view.childrenEl = childList;
+        button.addEventListener("click", () => setExpanded(view, !expanded.has(node.path)));
+      } else {
+        const spacer = setting.settingEl.createSpan({ cls: "notecloud-folder-spacer" });
+        spacer.setAttribute("aria-hidden", "true");
+        setting.settingEl.insertBefore(spacer, setting.settingEl.firstChild);
+      }
+    }
+  };
+  renderNodes(roots, tree);
+  expandAll.addEventListener("click", () => {
+    const pending = [...roots];
+    while (pending.length) {
+      const node = pending.pop();
+      if (!node) continue;
+      const view = views.get(node.path);
+      if (view) setExpanded(view, true);
+      for (const child of node.children) pending.push(child);
+    }
+  });
+  collapseAll.addEventListener("click", () => {
+    for (const view of views.values()) setExpanded(view, false);
+  });
+  if (!roots.length) {
+    section.createEl("p", { cls: "notecloud-folder-help", text: "\u6682\u65E0\u53EF\u5C55\u793A\u7684\u6587\u4EF6\u5939\uFF1B\u6839\u76EE\u5F55\u6587\u4EF6\u53EF\u5355\u72EC\u8BBE\u7F6E\u3002" });
+  }
+}
+
 // src/plugin-types.ts
 function objectValue(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("\u670D\u52A1\u5668\u8FD4\u56DE\u7684\u6570\u636E\u683C\u5F0F\u5F02\u5E38");
@@ -6392,35 +6506,13 @@ var NoteCloudSettingsTab = class extends h.PluginSettingTab {
     }
     new h.Setting(e).setName("\u5FEB\u6377\u952E\u540C\u6B65").addButton((b) => b.setButtonText("\u8BBE\u7F6E\u5FEB\u6377\u952E").onClick(() => this.plugin.openHotkeys()));
     e.createEl("h3", { text: "\u540C\u6B65\u8303\u56F4" });
-    const controls = [];
-    new h.Setting(e).setName("\u540C\u6B65\u6240\u6709\u6587\u4EF6\u5939").addToggle((b) => b.setValue(s.syncAllFolders).onChange(async (v) => {
-      {
-        s.syncAllFolders = v;
-        controls.forEach((c) => {
-          c.setDisabled(v);
-        });
-        await this.persist();
-      }
-    }));
     let folders = [];
     try {
       folders = selectableVaultFolders(this.app.vault).sort((b, v) => b.path.localeCompare(v.path));
     } catch (e2) {
       new h.Setting(e).setName("\u6587\u4EF6\u5939\u5217\u8868\u6682\u4E0D\u53EF\u7528").setDesc("\u4ED3\u5E93\u76EE\u5F55\u5C1A\u672A\u5C31\u7EEA\u6216\u53D1\u751F\u53D8\u5316\uFF0C\u8BF7\u7A0D\u540E\u91CD\u65B0\u6253\u5F00\u8BBE\u7F6E\u3002\u73B0\u6709\u540C\u6B65\u8303\u56F4\u4E0D\u4F1A\u6539\u53D8\u3002");
     }
-    const items = [{ path: "/", name: "\u6839\u76EE\u5F55\u6587\u4EF6" }, ...folders.map((b) => ({ path: b.path, name: b.path }))];
-    for (let item of items)
-      new h.Setting(e).setName(item.name).addToggle((b) => {
-        {
-          controls.push(b);
-          b.setValue(s.selectedFolders.includes(item.path)).setDisabled(s.syncAllFolders).onChange(async (v) => {
-            {
-              s.selectedFolders = v ? [.../* @__PURE__ */ new Set([...s.selectedFolders, item.path])] : s.selectedFolders.filter((p) => p !== item.path);
-              await this.persist();
-            }
-          });
-        }
-      });
+    renderFolderScope(e, folders, s, () => this.persist());
     e.createEl("h3", { text: "\u6587\u4EF6\u5904\u7406" });
     let serverMaxMb = Math.max(1, Math.floor((((_a2 = s.serviceStatus) == null ? void 0 : _a2.maxUploadBytes) || 200 * 1024 * 1024) / 1024 / 1024));
     const fileSizeDescription = () => `\u8D85\u8FC7 ${s.maxFileSizeMB} MB \u7684\u6587\u4EF6\u6682\u4E0D\u540C\u6B65\uFF1B\u670D\u52A1\u7AEF\u5F53\u524D\u4E0A\u9650 ${serverMaxMb} MB\u3002\u79FB\u52A8\u7AEF\u5EFA\u8BAE\u4FDD\u6301 50 MB \u4EE5\u4E0B`;

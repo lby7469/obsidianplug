@@ -181,3 +181,112 @@
 .notecloud-renewal-button{position:fixed;right:22px;bottom:158px;z-index:999;display:flex;align-items:center;gap:6px;border:1px solid #c45c11;border-radius:24px;background:#fff0d9;color:#873700;padding:10px 14px;box-shadow:0 4px 18px #0002;font-weight:700;cursor:pointer}
 .notecloud-renewal-button[hidden],.notecloud-renewal-card[hidden]{display:none}.notecloud-renewal-button svg{width:20px;height:20px}.notecloud-renewal-button.is-critical{background:#b42318;color:white;border-color:#b42318}.notecloud-renewal-button.is-animated{animation:notecloud-renewal-pulse 3s ease-in-out infinite}.notecloud-renewal-card{border:1px solid #d87022;border-left:5px solid #d87022;border-radius:10px;padding:14px;margin:0 0 18px;background:var(--background-secondary)}
 @keyframes notecloud-renewal-pulse{50%{box-shadow:0 0 0 5px #d8702230}}@media(prefers-reduced-motion:reduce){.notecloud-renewal-button.is-animated{animation:none}}
+
+.notecloud-folder-scope .notecloud-folder-help {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.5;
+  margin: 10px 0;
+}
+
+.notecloud-folder-scope .notecloud-folder-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 6px;
+}
+
+.notecloud-folder-scope .notecloud-folder-toolbar button {
+  min-height: 32px;
+}
+
+.notecloud-folder-scope .notecloud-folder-tree,
+.notecloud-folder-scope .notecloud-folder-children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.notecloud-folder-scope .notecloud-folder-children {
+  border-inline-start: 1px solid var(--background-modifier-border);
+  margin-inline-start: 15px;
+  padding-inline-start: 12px;
+}
+
+.notecloud-folder-scope .notecloud-folder-children[hidden] {
+  display: none;
+}
+
+.notecloud-folder-scope .notecloud-folder-row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.notecloud-folder-scope .notecloud-folder-row .setting-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.notecloud-folder-scope .notecloud-folder-row .setting-item-name {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.notecloud-folder-scope .notecloud-folder-row .setting-item-control {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+}
+
+.notecloud-folder-scope .notecloud-folder-expand,
+.notecloud-folder-scope .notecloud-folder-spacer {
+  align-items: center;
+  display: inline-flex;
+  flex: 0 0 32px;
+  height: 32px;
+  justify-content: center;
+  width: 32px;
+}
+
+.notecloud-folder-scope button.notecloud-folder-expand {
+  background: transparent;
+  border: 1px solid transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  min-width: 32px;
+  padding: 0;
+}
+
+.notecloud-folder-scope button.notecloud-folder-expand:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.notecloud-folder-scope button.notecloud-folder-expand:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
+.notecloud-folder-scope .notecloud-folder-chevron {
+  display: block;
+  font-size: 26px;
+  line-height: 1;
+}
+
+.notecloud-folder-scope .notecloud-folder-expand.is-expanded .notecloud-folder-chevron {
+  transform: rotate(90deg);
+}
+
+@media (max-width: 600px) {
+  .notecloud-folder-scope .notecloud-folder-children {
+    margin-inline-start: 8px;
+    padding-inline-start: 6px;
+  }
+
+  .notecloud-folder-scope .notecloud-folder-toolbar button,
+  .notecloud-folder-scope .notecloud-folder-expand,
+  .notecloud-folder-scope .notecloud-folder-spacer {
+    min-height: 40px;
+  }
+}
