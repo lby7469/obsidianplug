@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const vm = require("node:vm"), fs = require("node:fs"), path = require("node:path");
+const { transformSync } = require("esbuild");
 const { harness, TFile } = require("./test-harness.cjs");
 class Element {
   constructor() { this.children = []; this.isConnected = true; }
@@ -15,8 +16,10 @@ class Control { setButtonText() { return this; } setCta() { return this; } setVa
 class Setting { constructor() {} setName() { return this; } setDesc() { return this; } addButton(fn) { fn(new Control()); return this; } addToggle(fn) { fn(new Control()); return this; } }
 const modals = [];
 const obsidian = { Setting, setIcon() {}, Modal: class { constructor() { this.contentEl = new Element(); modals.push(this); } open() { this.onOpen(); } } };
-const context = vm.createContext({ module: { exports: {} }, require: () => obsidian, document: { body: new Element() } });
-vm.runInContext(fs.readFileSync(path.join(__dirname, "renewal.ts"), "utf8"), context);
+const moduleFixture = { exports: {} };
+const context = vm.createContext({ module: moduleFixture, exports: moduleFixture.exports, require: () => obsidian, document: { body: new Element() } });
+const renewalSource = fs.readFileSync(path.join(__dirname, "renewal.ts"), "utf8");
+vm.runInContext(transformSync(renewalSource, { loader: "ts", format: "cjs", target: "es2018" }).code, context);
 const renewal = context.module.exports;
 (async () => {
   const plugin = { settings: { token: "fixture", stateAccountId: "a", account: { id: "a", syncWritesAllowed: false, renewalNotice: { title: "已到期", message: "Fixture", level: "critical" } }, readAnnouncementIds: ["announcement"] }, refreshAccount: async () => {}, saveSettings: async () => {} };
@@ -33,7 +36,7 @@ const renewal = context.module.exports;
   t.setNetwork(async url => {
     if (url.endsWith("/v1/sync/manifest")) return new Response(JSON.stringify({ files: [], syncWritesAllowed: false }));
     if (url.endsWith("/v1/account")) return new Response(JSON.stringify({ id: "account-a", quotaBytes: 10, usedBytes: 20, syncWritesAllowed: false }));
-    return new Response(JSON.stringify({ latestVersion: "0.4.4", announcements: [] }));
+    return new Response(JSON.stringify({ latestVersion: "0.4.4", releaseUrl: "https://github.com/lby7469/obsidianplug/releases", announcements: [] }));
   });
   await t.instance.sync(true);
   assert.equal(t.metrics.reads, 0); assert.ok(!t.metrics.routes.some(route => /uploads|DELETE/.test(route)));

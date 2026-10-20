@@ -11,8 +11,10 @@ function isolated(files = []) {
 }
 (async () => {
   const { AccountRefresh, runBounded, safeSyncPath, ServiceError } = harness().support();
-  for (const path of ["../x.md", "a/../b.md", ".obsidian/x.md", ".trash/x.md", "a//b.md", "a\\b.md"]) assert.equal(safeSyncPath(path), false);
-  assert.equal(safeSyncPath("中文/笔记.txt"), true);
+  for (const path of ["../x.md", "a/../b.md", ".obsidian/x.md", ".trash/x.md", "a//b.md", "a\\b.md"]) assert.equal(safeSyncPath(path, ".obsidian"), false);
+  assert.equal(safeSyncPath("中文/笔记.txt", ".obsidian"), true);
+  assert.equal(safeSyncPath(".custom-settings/plugins/notecloud/data.json", ".custom-settings"), false);
+  assert.equal(safeSyncPath("notes/allowed.md", ".custom-settings"), true);
   let identity = "a", calls = 0, applied = [], errors = [], time = 10000, gate = deferred();
   const refresh = new AccountRefresh({ identity: () => identity, read: async () => { calls++; return gate.promise; }, apply: async a => { applied.push(a); }, error: e => errors.push(e), now: () => time });
   const one = refresh.refresh(true), two = refresh.refresh(true);
@@ -38,11 +40,11 @@ function isolated(files = []) {
   done.push("bounded concurrency, memory budget and drain-before-return");
   const token = harness().instance; token.settings.refreshToken = "refresh"; token.settings.tokenExpiresAt = Date.now() - 1;
   let refreshCalls = 0; const tokenGate = deferred();
-  token.request = async route => { if (route === "/v1/auth/plugin-refresh") { refreshCalls++; await tokenGate.promise; return { id: "account-a", token: "new-token", refreshToken: "new-refresh", expiresIn: 900 }; } return {}; };
+  token.request = async route => { if (route === "/v1/auth/plugin-refresh") { refreshCalls++; await tokenGate.promise; return { id: "account-a", usedBytes: 0, quotaBytes: 104857600, token: "new-token", refreshToken: "new-refresh", expiresIn: 900 }; } return {}; };
   const requests = [token.authorizedRequest("/one"), token.authorizedRequest("/two")];
   tokenGate.resolve(); await Promise.all(requests); assert.equal(refreshCalls, 1);
   token.settings.tokenExpiresAt = Date.now() - 1; const logoutGate = deferred();
-  token.request = async () => { await logoutGate.promise; return { id: "account-a", token: "late", refreshToken: "late", expiresIn: 900 }; };
+  token.request = async () => { await logoutGate.promise; return { id: "account-a", usedBytes: 0, quotaBytes: 104857600, token: "late", refreshToken: "late", expiresIn: 900 }; };
   const late = token.refreshPluginToken(); token.authEpoch = (token.authEpoch || 0) + 1; token.settings.token = ""; logoutGate.resolve();
   await assert.rejects(late); assert.equal(token.settings.token, "");
   done.push("parallel token refresh single flight, no late re-login");
@@ -91,7 +93,7 @@ function isolated(files = []) {
   retry.instance.authorizedBinaryRequest = async (route, method, data) => {
     const index = new URL("https://test.invalid" + route).searchParams.get("index"); attempts.push({ index, hash: digest(data) });
     if (attempts.length === 1) throw new ServiceError("temporary", 503, 1);
-    return { json: attempts.length === 3 ? { complete: true, record: { revision: digest(payload) } } : { complete: false } };
+    return { json: attempts.length === 3 ? { complete: true, record: { path: "retry.txt", size: payload.length, revision: digest(payload) } } : { complete: false } };
   };
   await retry.instance.upload(new TFile("retry.txt", payload), digest(payload), bytes(payload), null);
   assert.equal(attempts.length, 3); assert.deepEqual(attempts[0], attempts[1]); assert.equal(cancelledSessions, 0);

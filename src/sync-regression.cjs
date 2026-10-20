@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
 const { webcrypto, createHash } = require("node:crypto");
+const { testModule } = require("./test-module.cjs");
 const notices = [];
 class TFile { constructor(path, content) { this.path = path; this.name = path.split("/").pop(); this.extension = path.split(".").pop(); this.content = content; this.stat = { size: Buffer.byteLength(content), mtime: Date.now() }; } }
 const obsidian = { Plugin: class {}, PluginSettingTab: class {}, TFile, Platform: { isMobile: false }, Notice: class { constructor(message) { notices.push(message); } } };
@@ -33,10 +34,11 @@ function plugin(files = []) {
   return { instance, store };
 }
 (async () => {
-  const result = vm.runInContext('L(["ONE\\n", "two\\n", "three\\n"], ["one\\n", "two\\n", "three\\n"], ["one\\n", "two\\n", "THREE\\n"])', context);
+  const { mergeLines: L } = testModule("merge.ts");
+  const result = L(["ONE\n", "two\n", "three\n"], ["one\n", "two\n", "three\n"], ["one\n", "two\n", "THREE\n"]);
   assert.equal(result.conflict, false);
   assert.equal(result.result.join(""), "ONE\ntwo\nTHREE\n");
-  assert.equal(vm.runInContext('L(["local"], ["base"], ["cloud"]).conflict', context), true);
+  assert.equal(L(["local"], ["base"], ["cloud"]).conflict, true);
   const { instance, store } = plugin([new TFile("note.md", "local")]);
   instance.remoteBytes = async () => buffer("cloud");
   await instance.resolveConflict(store.get("note.md"), { path: "note.md", revision: digest("cloud") }, buffer("local"), digest("local"));
@@ -50,7 +52,7 @@ function plugin(files = []) {
   swapped.settings.state = { "old.md": { hash: "old", remoteRevision: "old" } };
   swapped.settings.phone = "13700000001";
   swapped.settings.pendingAuth = { state: "nonce", verifier: "verifier", createdAt: Date.now() };
-  swapped.request = async () => ({ id: "account-b", phone: "13700000002", token: "new", refreshToken: "refresh", expiresIn: 900 });
+  swapped.request = async () => ({ id: "account-b", phone: "13700000002", usedBytes: 0, quotaBytes: 104857600, token: "new", refreshToken: "refresh", expiresIn: 900 });
   await swapped.completeWebAuth({ code: "code", state: "nonce" });
   assert.equal(Object.keys(swapped.settings.state).length, 0);
   assert.equal(swapped.settings.autoSync, false);
@@ -65,7 +67,7 @@ function plugin(files = []) {
   const same = plugin().instance;
   same.settings.state = { "existing.md": { hash: "keep" } };
   same.settings.pendingAuth = { state: "nonce", verifier: "v", createdAt: Date.now() };
-  same.request = async () => ({ id: "account-a", token: "token", expiresIn: 900 });
+  same.request = async () => ({ id: "account-a", usedBytes: 0, quotaBytes: 104857600, token: "token", refreshToken: "fixture-refresh", expiresIn: 900 });
   await same.completeWebAuth({ code: "code", state: "nonce" });
   assert.equal(same.settings.state["existing.md"].hash, "keep");
   same.syncing = true;
@@ -74,5 +76,24 @@ function plugin(files = []) {
   const stale = plugin().instance;
   stale.authorizedBinaryRequest = async () => ({ arrayBuffer: buffer("changed") });
   await assert.rejects(stale.remoteBytes({ path: "note.md", revision: digest("old") }), /云端文件/);
-  console.log("PASS: three-way merge, true conflict, keep-both copy, local edit during download, account isolation, manual confirmation, same-account preservation, busy guard, remote revision verification");
+  for (const action of ["logout", "unload", "new-auth-request"]) {
+    const delayed = plugin().instance;
+    delayed.settings.state = { "kept.md": { hash: "local-hash", remoteRevision: "cloud-hash" } };
+    delayed.settings.pendingAuth = { state: "old-state", verifier: "old-verifier", createdAt: Date.now() };
+    let finish;
+    delayed.request = async () => new Promise(resolve => { finish = resolve; });
+    const completing = delayed.completeWebAuth({ code: "fixture-code", state: "old-state" });
+    assert.equal(typeof finish, "function", "The exchange is genuinely in flight before the state changes");
+    let expectedToken = delayed.settings.token;
+    if (action === "logout") { await delayed.logout(); expectedToken = ""; }
+    else if (action === "unload") delayed.onunload();
+    else delayed.settings.pendingAuth = { state: "new-state", verifier: "new-verifier", createdAt: Date.now() };
+    finish({ id: "different-account", usedBytes: 0, quotaBytes: 104857600, token: "late-token", refreshToken: "late-refresh", expiresIn: 3600 });
+    await completing;
+    assert.equal(delayed.settings.token, expectedToken, "A late exchange must not undo " + action);
+    assert.ok(delayed.settings.state["kept.md"], "A rejected late exchange must not clear synchronization history");
+    assert.equal(delayed.authCompleting, false);
+    if (action === "new-auth-request") assert.equal(delayed.settings.pendingAuth.state, "new-state");
+  }
+  console.log("PASS: three-way merge, true conflict, keep-both copy, local edit during download, account isolation, manual confirmation, same-account preservation, busy guard, remote revision verification; late exchange cannot undo logout, unload or a newer auth request");
 })().catch(error => { console.error(error); process.exitCode = 1; });

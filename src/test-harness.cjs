@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 const path = require("node:path");
 const { webcrypto, createHash } = require("node:crypto");
+const { testModule } = require("./test-module.cjs");
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const bytes = value => Uint8Array.from(Buffer.isBuffer(value) ? value : Buffer.from(value)).buffer;
 const digest = value => createHash("sha256").update(Buffer.from(value)).digest("hex");
@@ -14,7 +15,7 @@ class TFile {
 }
 function harness({ bundle = path.join(__dirname, "../main.js"), files = [], latency = 0, mobile = false } = {}) {
   const notices = [], metrics = { requests: 0, reads: 0, saves: 0, routes: [], peak: 0, active: 0 };
-  let network = async (url, options) => fetch(url, options);
+  let network = async () => { throw Error("Unexpected network request in isolated test"); };
   async function request(url, options) {
     metrics.requests++; metrics.routes.push((options?.method || "GET") + " " + new URL(url).pathname);
     metrics.active++; metrics.peak = Math.max(metrics.peak, metrics.active);
@@ -42,6 +43,6 @@ function harness({ bundle = path.join(__dirname, "../main.js"), files = [], late
   instance.settings = { ...instance.settings, state: {}, selectedFolders: [], syncAllFolders: true, token: "fixture", account: { id: "account-a", quotaBytes: 100000000, usedBytes: 0 } };
   instance.saveData = async () => { metrics.saves++; };
   instance.configureAutoSync = () => {};
-  return { instance, store, metrics, notices, support: () => vm.runInContext("support", context), setNetwork: value => { network = value; } };
+  return { instance, store, metrics, notices, support: () => testModule("sync-support.ts"), setNetwork: value => { network = value; } };
 }
 module.exports = { harness, TFile, bytes, digest, delay };

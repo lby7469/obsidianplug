@@ -1,13 +1,25 @@
-// @ts-nocheck
-const { Modal, Setting, Notice, setIcon } = require("obsidian");
-const { announcementHtml } = require("./announcement-markdown");
+import { Modal, Setting, Notice, setIcon, type App } from "obsidian";
+import { announcementFragment } from "./announcement-markdown";
+import type { Announcement, PluginSettings, RequestOptions, ServiceStatus } from "./plugin-types";
 
-function unread(plugin) {
+export interface CommunityPlugin {
+  app: App;
+  settings: PluginSettings;
+  announcementButton?: HTMLButtonElement;
+  settingsTab?: { display(): void };
+  checkServiceStatus(manual: boolean): Promise<ServiceStatus | undefined>;
+  registerInterval(interval: number): number;
+  saveSettings(): Promise<void>;
+  openWebPortal(path: string): Promise<void>;
+  authorizedRequest(path: string, options: RequestOptions): Promise<unknown>;
+}
+
+export function unread(plugin: CommunityPlugin): Announcement[] {
   const read = new Set(plugin.settings.readAnnouncementIds || []);
   const deleted = new Set(plugin.settings.deletedAnnouncementIds || []);
   return (plugin.settings.announcementHistory || []).filter(item => item.active !== false && !read.has(item.id) && !deleted.has(item.id));
 }
-function updateIcon(plugin) {
+export function updateIcon(plugin: CommunityPlugin): void {
   if (typeof document === "undefined") return;
   const count = unread(plugin).length;
   if (!plugin.announcementButton) {
@@ -25,7 +37,7 @@ function updateIcon(plugin) {
   button.setAttribute("aria-label", `NoteCloud 有 ${count} 条未读公告，点击查看`);
   button.title = `NoteCloud：${count} 条未读公告`;
 }
-function ingest(plugin, incoming) {
+export function ingest(plugin: CommunityPlugin, incoming: Announcement[]): void {
   const deleted = new Set(plugin.settings.deletedAnnouncementIds || []);
   const map = new Map((plugin.settings.announcementHistory || []).map(item => [item.id, { ...item, active: false }]));
   for (const item of incoming || []) if (item?.id && typeof item.title === "string" && typeof item.message === "string") map.set(item.id, { ...item, active: true });
@@ -34,40 +46,40 @@ function ingest(plugin, incoming) {
   plugin.settings.readAnnouncementIds = (plugin.settings.readAnnouncementIds || []).filter(id => known.has(id));
   updateIcon(plugin);
 }
-function initialize(plugin) {
+export function initialize(plugin: CommunityPlugin): void {
   plugin.settings.announcementHistory ||= (plugin.settings.serviceStatus?.announcements || []).slice(0, 10);
   plugin.settings.readAnnouncementIds ||= [];
   plugin.settings.deletedAnnouncementIds ||= [];
   updateIcon(plugin);
   plugin.registerInterval(window.setInterval(() => void plugin.checkServiceStatus(false), 5 * 60 * 1000));
 }
-async function markRead(plugin, id) {
+export async function markRead(plugin: CommunityPlugin, id: string): Promise<void> {
   if (!(plugin.settings.announcementHistory || []).some(item => item.id === id)) return;
   plugin.settings.readAnnouncementIds = [...new Set([...(plugin.settings.readAnnouncementIds || []), id])].slice(-10);
   await plugin.saveSettings(); updateIcon(plugin);
 }
-async function deleteAnnouncement(plugin, id) {
+export async function deleteAnnouncement(plugin: CommunityPlugin, id: string): Promise<void> {
   if (!(plugin.settings.readAnnouncementIds || []).includes(id)) return;
   plugin.settings.deletedAnnouncementIds = [...new Set([...(plugin.settings.deletedAnnouncementIds || []), id])];
   plugin.settings.announcementHistory = (plugin.settings.announcementHistory || []).filter(item => item.id !== id);
-  plugin.settings.readAnnouncementIds = plugin.settings.readAnnouncementIds.filter(item => item !== id);
+  plugin.settings.readAnnouncementIds = (plugin.settings.readAnnouncementIds || []).filter(item => item !== id);
   await plugin.saveSettings(); updateIcon(plugin);
 }
-function openAnnouncement(plugin, item) {
+export function openAnnouncement(plugin: CommunityPlugin, item: Announcement): void {
   const modal = new Modal(plugin.app);
   modal.onOpen = () => {
     modal.modalEl?.addClass("notecloud-announcement-reader");
     modal.contentEl.createEl("h2", { text: item.title });
     modal.contentEl.createEl("p", { cls: "notecloud-announcement-meta", text: item.createdAt ? new Date(item.createdAt).toLocaleString() : "" });
     const body = modal.contentEl.createDiv({ cls: "notecloud-announcement-markdown" });
-    body.innerHTML = announcementHtml(item.message, item.format || "text");
-    if (item.linkUrl && /^https:\/\//i.test(item.linkUrl)) new Setting(modal.contentEl).addButton(button => button.setButtonText("打开详情链接").onClick(() => window.open(item.linkUrl, "_blank", "noopener,noreferrer")));
+    body.append(announcementFragment(item.message, item.format || "text"));
+    if (item.linkUrl && /^https:\/\//i.test(item.linkUrl)) new Setting(modal.contentEl).addButton(button => button.setButtonText("打开详情链接").onClick(() => { window.open(item.linkUrl, "_blank", "noopener,noreferrer"); }));
     new Setting(modal.contentEl).addButton(button => button.setButtonText("关闭").onClick(() => modal.close()));
   };
   modal.onClose = () => modal.contentEl.empty();
   modal.open();
 }
-function renderItem(plugin, container, item, refresh) {
+function renderItem(plugin: CommunityPlugin, container: HTMLElement, item: Announcement, refresh: () => void): void {
   const read = (plugin.settings.readAnnouncementIds || []).includes(item.id);
   const setting = new Setting(container).setName(item.title).setDesc(`${item.createdAt ? new Date(item.createdAt).toLocaleString() : ""} · ${read ? "已读" : "未读"}${item.active === false ? " · 历史公告" : ""}`);
   setting.settingEl.toggleClass("notecloud-announcement-unread", !read);
@@ -79,7 +91,7 @@ function renderItem(plugin, container, item, refresh) {
     catch { new Notice("公告状态保存失败，请稍后重试"); button.setDisabled(false); }
   }));
 }
-function openAnnouncements(plugin) {
+export function openAnnouncements(plugin: CommunityPlugin): void {
   const modal = new Modal(plugin.app);
   const render = () => {
     modal.contentEl.empty();
@@ -93,7 +105,7 @@ function openAnnouncements(plugin) {
   modal.onOpen = render;
   modal.open();
 }
-function renderTop(plugin, container) {
+export function renderTop(plugin: CommunityPlugin, container: HTMLElement): void {
   const items = unread(plugin);
   if (!items.length) return;
   const box = container.createDiv({ cls: "notecloud-unread-announcements" });
@@ -101,10 +113,10 @@ function renderTop(plugin, container) {
   for (const item of items.slice(0, 3)) renderItem(plugin, box, item, () => {});
   if (items.length > 3) new Setting(box).setName("还有未读公告").addButton(button => button.setButtonText("查看全部").onClick(() => openAnnouncements(plugin)));
 }
-function renderHistory(plugin, container) {
+export function renderHistory(plugin: CommunityPlugin, container: HTMLElement): void {
   new Setting(container).setName("公告栏").setDesc("查看最近 10 条历史公告，已读内容保留在这里。").addButton(button => button.setButtonText("打开公告栏").onClick(() => openAnnouncements(plugin)));
 }
-function openFeedback(plugin) {
+export function openFeedback(plugin: CommunityPlugin): void {
   const modal = new Modal(plugin.app);
   let title = "", message = "";
   modal.onOpen = () => {
@@ -123,4 +135,3 @@ function openFeedback(plugin) {
   };
   modal.open();
 }
-module.exports = { initialize, ingest, unread, markRead, deleteAnnouncement, openAnnouncement, updateIcon, renderTop, renderHistory, openAnnouncements, openFeedback };

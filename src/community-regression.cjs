@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
+const { transformSync } = require("esbuild");
 const notices = [], modals = [], settings = [];
 class Element {
   constructor() { this.children = []; this.attrs = {}; }
@@ -8,6 +9,7 @@ class Element {
   createSpan(options) { return this.createEl("span", options); }
   createDiv(options) { return this.createEl("div", options); }
   empty() { this.children = []; }
+  append(...children) { this.children.push(...children); }
   addEventListener(type, callback) { this[type] = callback; }
   toggleClass(name, active) { this[name] = active; }
   setAttribute(name, value) { this.attrs[name] = value; }
@@ -30,8 +32,11 @@ class Setting {
   addTextArea(callback) { return this.addButton(callback); }
 }
 const obsidian = { Setting, Notice: class { constructor(message) { notices.push(message); } }, setIcon() {}, Modal: class { constructor() { this.contentEl = new Element(); modals.push(this); } open() { this.onOpen(); } close() { this.closed = true; } } };
-const context = vm.createContext({ module: { exports: {} }, require: name => name === "./announcement-markdown" ? { announcementHtml: () => "<h2>Safe fixture</h2>" } : obsidian, document: { body: new Element() }, window: { open() {}, setInterval: () => 1 } });
-vm.runInContext(fs.readFileSync(require("node:path").join(__dirname, "community.ts"), "utf8"), context);
+const fragmentFixture = { sanitizedFragment: true, content: "Safe fixture" };
+const moduleFixture = { exports: {} };
+const context = vm.createContext({ module: moduleFixture, exports: moduleFixture.exports, require: name => name === "./announcement-markdown" ? { announcementFragment: () => fragmentFixture } : obsidian, document: { body: new Element() }, window: { open() {}, setInterval: () => 1 } });
+const communitySource = fs.readFileSync(require("node:path").join(__dirname, "community.ts"), "utf8");
+vm.runInContext(transformSync(communitySource, { loader: "ts", format: "cjs", target: "es2018" }).code, context);
 const community = context.module.exports;
 (async () => {
   let saves = 0, sent;
@@ -49,7 +54,9 @@ const community = context.module.exports;
   const before = community.unread(plugin).length;
   await settings[0].controls[0].click();
   assert.equal(community.unread(plugin).length, before, "Viewing does not automatically mark read");
-  assert.equal(modals.at(-1).contentEl.children.find(child => child.cls === "notecloud-announcement-markdown").innerHTML, "<h2>Safe fixture</h2>");
+  const announcementBody = modals.at(-1).contentEl.children.find(child => child.cls === "notecloud-announcement-markdown");
+  assert.equal(announcementBody.children[0], fragmentFixture, "Append the sanitized DOM fragment directly, without reparsing HTML");
+  assert.equal(announcementBody.innerHTML, undefined, "Announcement display does not assign innerHTML");
   await community.deleteAnnouncement(plugin, "11"); assert.equal(plugin.settings.announcementHistory.length, 10, "Unread deletion is refused");
   await community.markRead(plugin, "11"); assert.equal(community.unread(plugin).length, 9); assert.equal(saves, 1);
   community.ingest(plugin, incoming); assert.equal(community.unread(plugin).length, 9);

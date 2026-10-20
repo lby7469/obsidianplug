@@ -1,12 +1,27 @@
-# NoteCloud Sync 0.4.5
+# NoteCloud Sync 0.4.6
 
 NoteCloud Sync 是无需 Git 配置的 Obsidian 云同步插件，面向桌面和移动端设计。云端保留文件夹层级，网页可阅读笔记、仅链接分享或投稿到首页。
+
+NoteCloud Sync is an independent community plugin, not an Obsidian product or the official Obsidian Sync service. A NoteCloud account and an internet connection are required for cloud features. A limited free storage tier is available; additional storage may require payment. Please read the [data handling and privacy information](PRIVACY.md) before connecting a vault.
+
+本插件由 NoteCloud 独立提供，与 Obsidian 官方及官方 Obsidian Sync 服务无隶属关系。**云端功能需要 NoteCloud 账号和网络连接；免费容量有限，额外扩容可能收费。** 本地阅读 Obsidian 笔记不需要本服务。当前仍通过 BRAT / 手动安装，官方插件目录的提交和审核尚未完成，不能在官方目录中宣称已可安装。
 
 开始使用：Obsidian 设置 → 第三方插件 → 安装并启用 BRAT → 在 BRAT 添加 `lby7469/obsidianplug` → 启用 NoteCloud Sync → 插件设置里登录 → 先备份，再选择文件夹同步。
 
 详细操作说明见 [用户使用指南](USER_GUIDE.md)，网站：[notecloud.asia](https://notecloud.asia)。
 
 自动升级只需配置一次：在 BRAT 中让本插件跟随 **latest**，开启“启动时自动更新 Beta 插件”。固定到某个版本不会自动更新；Obsidian 关闭或 GitHub 不可访问时无法更新。没有使用 BRAT 的旧用户需先完成这一步。
+
+NoteCloud 插件本身不安装或更新自己，也不下载可执行依赖；它只检查版本、显示提示或打开发布页。BRAT 是用户另行安装和控制的插件，不是使用 NoteCloud 云同步的运行依赖。将来进入官方目录后，可直接使用 Obsidian 的第三方插件更新入口，不必安装 BRAT。
+
+## 网络、文件与数据处理披露
+
+- `https://api.notecloud.asia`：账号授权、设备令牌、同步、容量、反馈、版本检查与公告。同步会上传所选范围内支持类型的文件内容、相对路径、大小、哈希、修改时间，以及 Markdown 的 Wiki Link / 嵌入 / 出链和别名元数据；登录后默认每 5 分钟自动同步，可在设置关闭或改为手动。
+- `https://notecloud.asia`：浏览器内登录、注册、忘记密码、设备授权、云仓库、分享与续费记录。浏览器授权完成后通过 `obsidian://notecloud-auth` 返回插件。
+- 版本与公告检查在启用插件后发起，并约每 5 分钟重查；请求包含插件版本及 mobile / desktop 分类，用于兼容与服务信息。服务端保留运行 / 安全日志，包括请求时间、路径、IP 地址、结果与必要的安全操作记录，具体说明见 [PRIVACY.md](PRIVACY.md)。关闭动画不等于停止联网检查。
+- 官网 / API 目前经 Cloudflare 公网入口转发；GitHub 用于用户主动打开发布页，以及 Obsidian / BRAT 下载插件更新。没有外部广告或客户端行为分析 SDK；不自动把私人笔记附加到反馈中。
+- 运行时使用 Obsidian Vault API 处理当前仓库，不读取仓库外的任意文件；不直接使用 Node.js 文件系统或 Electron 接口。同步排除 Obsidian 配置目录及回收站。设备令牌和同步基线由 Obsidian 保存在本插件配置中，请勿公开 `data.json` 或整个配置目录。
+- 公告中的外部图片只显示链接，不自动加载；点击外部链接后由浏览器访问该站点。**没有端到端加密**，拥有服务器 / 备份权限的运维人员仍可能读取上传文件。
 
 ## 账号登录
 
@@ -47,18 +62,30 @@ NoteCloud Sync 是无需 Git 配置的 Obsidian 云同步插件，面向桌面�
 
 正式服务使用 HTTPS，密码采用加盐 scrypt 哈希；普通用户不能访问他人的私人仓库。管理员后台有受权限控制的只读目录与正文预览入口，每次查询和读取留有审计记录，不提供代设现有用户密码。公开投稿经审核，链接分享不进入首页。
 
-**当前没有端到端加密。** 笔记和备份在服务器上不是应用层加密保存，拥有服务器权限的运维仍可能读取。链接持有人可转发和下载；已下载副本无法撤回。详细边界见用户指南。
+**当前没有端到端加密。** 在线笔记未做应用层静态加密；运维备份仓库已使用 Restic 加密，但持有服务器权限或备份解密密钥的人员仍可能读取相应内容，这不等于运维无法访问。链接持有人可转发和下载；已下载副本无法撤回。详细边界见 [隐私说明](PRIVACY.md) 和用户指南。
 
 本项目处于早期体验阶段，尚未完成全部平台真机测试，不承诺零故障。云同步不是独立备份，第一次使用请先备份仓库。
 
 ## 构建
 
 ```powershell
-npm install
+npm ci --ignore-scripts
 npm run check
+npm run lint
 npm run build
+npm test
 ```
 
 发布文件为 `main.js`、`manifest.json`、`styles.css` 和 `versions.json`。可通过 BRAT 使用仓库 `lby7469/obsidianplug`，也可以手动复制到 Vault 的 `.obsidian/plugins/notecloud-sync/`。
 
-`src/main.ts` 是从旧生产发布包恢复并格式化的源码，目前采用渐进类型化；后续功能应修改源码后重新构建，不再直接编辑压缩的 `main.js`。
+源码已整理为严格 TypeScript：同步、账号及界面位于 `src/main.ts`，网络 / 缓存边界位于 `src/plugin-types.ts`，三方合并位于 `src/merge.ts`。修改源码后重新构建，不直接编辑 `main.js`。本地按官方 ESLint 推荐规则检查（仅添加 NoteCloud / BRAT 品牌词配置，不关闭规则）；旧版滑块动态提示 API 保留一条弃用警告，以维持声明的最低版本兼容。
+
+`npm test` 使用虚构数据，覆盖同步 / 冲突、账号隔离、取消、容量刷新、公告、续费、损坏缓存、分行兼容及真实 DOM 安全渲染；不连接正式用户仓库。静态检查和模拟测试不等于所有平台真机验收。最低声明版本为 1.5.0，具体设备首次使用仍请先用已备份的测试仓库验证。
+
+## 维护与下载地址
+
+原地址 `lby7469/obsidianplug` 继续保留，用于现有用户的 BRAT / Release 下载；不要求旧用户改仓库或重新安装。维护者已授权 `Yinds0270` 在 `Yinds0270/NoteCloud` 继续维护和发布，详见 [维护授权说明](MAINTAINERS.md)。两个来源使用同一插件 ID `notecloud-sync`，不是两个不同插件，不要在同一仓库重复安装。新账号仓库发布与官方目录审核是独立步骤，以各自页面实际状态为准。
+
+## 许可证与第三方组件
+
+插件客户端采用 [MIT License](LICENSE)，不因此为独立服务端、运维配置或用户数据授予任何开源许可。Markdown 公告使用 DOMPurify 和 Marked；三方合并代码基于 node-diff3 / Synchrotron 算法实现。来源和完整许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。构建会把客户端及已打包组件的必要许可正文保留在 `main.js` 注释中。官方目录尚未审核通过；GitHub 发布与官方上架是两件事，审核完成前仍按本页 BRAT / 手动方式安装。

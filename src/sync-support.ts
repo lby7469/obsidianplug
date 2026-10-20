@@ -1,11 +1,14 @@
 export class ServiceError extends Error {
   constructor(message: string, public status = 0, public retryAfterMs = 0) { super(message); this.name = "ServiceError"; }
 }
-export const transient = (error: any) => !error?.status || error.status === 408 || error.status === 429 || error.status >= 500;
+export function transient(error: unknown): boolean {
+  const status = error && typeof error === "object" && "status" in error && typeof error.status === "number" ? error.status : 0;
+  return !status || status === 408 || status === 429 || status >= 500;
+}
 export async function timed<T>(operation: Promise<T>, milliseconds = 30000): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
-  try { return await Promise.race([operation, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new ServiceError("连接超时，请检查网络后重试", 408)), milliseconds); })]); }
-  finally { clearTimeout(timer!); }
+  let timer: number | undefined;
+  try { return await Promise.race([operation, new Promise<never>((_, reject) => { timer = window.setTimeout(() => reject(new ServiceError("连接超时，请检查网络后重试", 408)), milliseconds); })]); }
+  finally { if (timer !== undefined) window.clearTimeout(timer); }
 }
 export function base64(bytes: ArrayBuffer) {
   const view = new Uint8Array(bytes);
@@ -13,8 +16,8 @@ export function base64(bytes: ArrayBuffer) {
   for (let offset = 0; offset < view.length; offset += 8192) binary += String.fromCharCode(...view.subarray(offset, offset + 8192));
   return btoa(binary);
 }
-export function safeSyncPath(path: string, configDir = ".obsidian") {
-  return !!path && !path.includes(String.fromCharCode(92)) && !path.split("/").some(part => !part || part === "." || part === "..") && path !== configDir && !path.startsWith(configDir + "/") && !path.startsWith(".obsidian/") && !path.startsWith(".trash/");
+export function safeSyncPath(path: string, configDir: string): boolean {
+  return !!path && !path.includes(String.fromCharCode(92)) && !path.split("/").some(part => !part || part === "." || part === "..") && path !== configDir && !path.startsWith(configDir + "/") && !path.startsWith(".trash/");
 }
 // Wait for every started job before returning; bound simultaneous in-memory files.
 export async function runBounded<T>(items: T[], limit: number, bytes: (item: T) => number, budget: number, work: (item: T) => Promise<void>, stopped: () => boolean) {
@@ -27,26 +30,26 @@ export async function runBounded<T>(items: T[], limit: number, bytes: (item: T) 
       if (active.size && activeBytes + weight > budget) break;
       index++; activeBytes += weight;
       let job: Promise<void>;
-      job = Promise.resolve().then(() => work(item)).catch(error => { fatal ||= error; }).finally(() => { activeBytes -= weight; active.delete(job); });
+      job = Promise.resolve().then(() => work(item)).catch((error: unknown) => { fatal ||= error; }).finally(() => { activeBytes -= weight; active.delete(job); });
       active.add(job);
     }
     if (active.size) await Promise.race(active); else break;
   }
-  if (fatal) throw fatal;
+  if (fatal) throw fatal instanceof Error ? fatal : new Error(typeof fatal === "string" ? fatal : "文件同步任务失败");
 }
-type Account = { id: string; usedBytes: number; quotaBytes: number; [key: string]: unknown };
-type RefreshOptions = {
+export interface RefreshAccount { id: string; usedBytes: number; quotaBytes: number }
+type RefreshOptions<T extends RefreshAccount> = {
   identity: () => string;
-  read: () => Promise<Account>;
-  apply: (account: Account) => Promise<void>;
+  read: () => Promise<T>;
+  apply: (account: T) => Promise<void>;
   error: (error: unknown) => void;
   now?: () => number;
 };
-export class AccountRefresh {
-  private pending?: { identity: string; promise: Promise<Account | undefined> };
+export class AccountRefresh<T extends RefreshAccount = RefreshAccount> {
+  private pending?: { identity: string; promise: Promise<T | undefined> };
   private lastIdentity = "";
   private lastAttempt = 0;
-  constructor(private options: RefreshOptions) {}
+  constructor(private options: RefreshOptions<T>) {}
   async refresh(force = false, interval = 60000) {
     const identity = this.options.identity(), now = (this.options.now || Date.now)();
     if (!identity) return;
@@ -58,7 +61,7 @@ export class AccountRefresh {
       if (!account?.id || !Number.isFinite(account.quotaBytes) || !Number.isFinite(account.usedBytes)) throw Error("账户信息格式异常");
       await this.options.apply(account);
       return account;
-    }).catch(error => { if (this.options.identity() === identity) this.options.error(error); return undefined; })
+    }).catch((error: unknown) => { if (this.options.identity() === identity) this.options.error(error); return undefined; })
       .finally(() => { if (this.pending?.promise === promise) this.pending = undefined; });
     this.pending = { identity, promise };
     return promise;
