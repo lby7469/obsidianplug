@@ -1,5 +1,4 @@
 import { Setting } from "obsidian";
-import type { ToggleComponent } from "obsidian";
 
 type FolderScopeState = { syncAllFolders: boolean; selectedFolders: string[] };
 type FolderEntry = { readonly path: string };
@@ -17,19 +16,19 @@ let childrenSequence = 0;
 // This renderer never reads vault files or persists expansion state.
 export function renderFolderScope(container: HTMLElement, folders: readonly FolderEntry[], state: FolderScopeState, persist: () => Promise<void>): void {
   const section = container.createDiv({ cls: "notecloud-folder-scope" });
-  const controls: ToggleComponent[] = [];
+  const controls: ((disabled: boolean) => void)[] = [];
 
   new Setting(section).setName("同步所有文件夹").setClass("notecloud-all-folders").addToggle(toggle => {
     toggle.toggleEl.setAttribute("aria-label", "同步所有文件夹");
     toggle.setValue(state.syncAllFolders).onChange(async value => {
       state.syncAllFolders = value;
-      for (const control of controls) control.setDisabled(value);
+      for (const disable of controls) disable(value);
       await persist();
     });
   });
 
   const addSelection = (setting: Setting, path: string, label: string) => setting.addToggle(toggle => {
-    controls.push(toggle);
+    controls.push(disabled => { toggle.setDisabled(disabled); });
     toggle.toggleEl.setAttribute("aria-label", label);
     toggle.setValue(state.selectedFolders.includes(path)).setDisabled(state.syncAllFolders).onChange(async value => {
       state.selectedFolders = value ? [...new Set([...state.selectedFolders, path])] : state.selectedFolders.filter(selected => selected !== path);
@@ -133,5 +132,30 @@ export function renderFolderScope(container: HTMLElement, folders: readonly Fold
   });
   if (!roots.length) {
     section.createEl("p", { cls: "notecloud-folder-help", text: "暂无可展示的文件夹；根目录文件可单独设置。" });
+  }
+
+  const unavailable = [...new Set(state.selectedFolders)].filter(path => path !== "/" && !nodes.has(path));
+  if (unavailable.length) {
+    const group = section.createDiv({ cls: "notecloud-unavailable-folders" });
+    group.createEl("h4", { text: "不可用的已选文件夹" });
+    group.createEl("p", { cls: "notecloud-folder-help", text: "这些目录可能已删除、改名或暂时不可用。按所选文件夹同步时会安全暂停；若只是硬盘暂时断开，请恢复目录后重新打开设置。不会自动清除已有选择。" });
+    for (const path of unavailable) {
+      const setting = new Setting(group).setName(path || "（空路径）").setDesc("取消只移除该目录的同步选择，不删除云端笔记。目录恢复后可重新选择。").setClass("notecloud-unavailable-folder");
+      setting.settingEl.dataset.folderPath = path;
+      let cancelled = false;
+      setting.addButton(button => {
+        button.buttonEl.setAttribute("aria-label", `取消不可用文件夹的同步选择：${path}`);
+        controls.push(disabled => { button.setDisabled(disabled || cancelled); });
+        button.setButtonText("取消选择").setDisabled(state.syncAllFolders).onClick(async () => {
+          if (state.syncAllFolders || cancelled) return;
+          state.selectedFolders = state.selectedFolders.filter(selected => selected !== path);
+          cancelled = true;
+          button.setButtonText("已取消").setDisabled(true);
+          button.buttonEl.setAttribute("aria-label", `已取消不可用文件夹：${path}`);
+          setting.setDesc("已取消此目录的同步选择；其他选择和云端笔记保持不变。");
+          await persist();
+        });
+      });
+    }
   }
 }

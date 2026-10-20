@@ -44,6 +44,17 @@ class Toggle {
   setDisabled(value) { this.toggleEl.disabled = value; return this; }
   onChange(callback) { this.changed = callback; return this; }
 }
+class Button {
+  constructor(container) {
+    this.buttonEl = document.createElement('button');
+    this.buttonEl.type = 'button';
+    container.append(this.buttonEl);
+    this.buttonEl.addEventListener('click', () => { if (this.clicked) void this.clicked(); });
+  }
+  setButtonText(text) { this.buttonEl.textContent = text; return this; }
+  setDisabled(value) { this.buttonEl.disabled = value; return this; }
+  onClick(callback) { this.clicked = callback; return this; }
+}
 class Setting {
   constructor(container) {
     this.settingEl = document.createElement('div');
@@ -61,6 +72,7 @@ class Setting {
   setDesc(description) { this.descEl.textContent = description; return this; }
   setClass(name) { this.settingEl.classList.add(name); return this; }
   addToggle(configure) { configure(new Toggle(this.controlEl)); return this; }
+  addButton(configure) { configure(new Button(this.controlEl)); return this; }
 }
 const moduleFixture = { exports: {} };
 const compiled = buildSync({
@@ -237,5 +249,76 @@ async function click(element) {
   equal(leaves.paths(), ['one', 'two']);
   equal(leaves.toolbar('全部展开').disabled, true, 'Expand-all is disabled when nothing can expand');
   equal(leaves.toolbar('全部收起').disabled, true);
+
+  const missingRows = fixture => [...fixture.container.querySelectorAll('.notecloud-unavailable-folder')];
+  const missingRow = (fixture, folderPath) => missingRows(fixture).find(row => row.dataset.folderPath === folderPath);
+  const cancelMissing = (fixture, folderPath) => missingRow(fixture, folderPath)?.querySelector('button');
+  const dangerousMissing = '<svg onload=alert(1)>旧目录📝';
+  const unavailable = fixture({ selectedFolders: ['/', 'alpha/beta', 'removed-old', dangerousMissing] });
+  equal(stateSnapshot(unavailable.state), unavailable.original, 'Missing folders are never automatically removed from saved selections');
+  equal(unavailable.saves, 0);
+  equal(missingRows(unavailable).map(row => row.dataset.folderPath).sort(), ['removed-old', dangerousMissing].sort(), 'Only unavailable folders get a separate recovery control, not the root-file marker or known folders');
+  verify(unavailable.container.querySelector('.notecloud-unavailable-folders').textContent.includes('不可用的已选文件夹'));
+  equal(missingRow(unavailable, dangerousMissing).querySelector('.setting-item-name').textContent, dangerousMissing, 'Unavailable old paths render literally, including markup-like names');
+  equal(unavailable.container.querySelector('svg,img,script'), null);
+  equal(cancelMissing(unavailable, 'removed-old').textContent, '取消选择');
+  equal(cancelMissing(unavailable, 'removed-old').disabled, false);
+  await click(unavailable.toolbar('全部展开'));
+  await click(unavailable.toolbar('全部收起'));
+  equal(stateSnapshot(unavailable.state), unavailable.original, 'Display controls cannot implicitly remove unavailable selections');
+  equal(unavailable.saves, 0);
+  await click(cancelMissing(unavailable, 'removed-old'));
+  equal(selection(unavailable.state), ['/', 'alpha/beta', dangerousMissing], 'Explicit cancellation removes only the selected missing path');
+  equal(unavailable.saves, 1, 'Cancellation persists exactly once');
+  equal(cancelMissing(unavailable, 'removed-old').textContent, '已取消');
+  equal(cancelMissing(unavailable, 'removed-old').disabled, true, 'A completed cancellation cannot be repeated');
+  await click(cancelMissing(unavailable, 'removed-old'));
+  equal(unavailable.saves, 1);
+  await click(unavailable.toggle('同步所有文件夹'));
+  equal(unavailable.state.syncAllFolders, true);
+  equal(cancelMissing(unavailable, dangerousMissing).disabled, true, 'Sync-all disables recovery controls without deleting old choices');
+  equal(cancelMissing(unavailable, 'removed-old').disabled, true);
+  const beforeDisabledCancel = stateSnapshot(unavailable.state);
+  await click(cancelMissing(unavailable, dangerousMissing));
+  equal(stateSnapshot(unavailable.state), beforeDisabledCancel);
+  equal(unavailable.saves, 2, 'A disabled recovery button cannot save or change the scope');
+  await click(unavailable.toggle('同步所有文件夹'));
+  equal(cancelMissing(unavailable, dangerousMissing).disabled, false, 'Leaving sync-all restores active recovery controls');
+  equal(cancelMissing(unavailable, 'removed-old').disabled, true, 'Leaving sync-all never re-enables already cancelled paths');
+  equal(unavailable.saves, 3);
+  await click(cancelMissing(unavailable, dangerousMissing));
+  equal(selection(unavailable.state), ['/', 'alpha/beta'], 'Cancelling another missing path keeps known-folder and root-file choices');
+  equal(unavailable.saves, 4);
+  unavailable.render();
+  equal(missingRows(unavailable).length, 0, 'Cancelled missing selections disappear after reopening settings');
+  equal(selection(unavailable.state), ['/', 'alpha/beta']);
+  equal(unavailable.saves, 4);
+
+  const initiallyDisabled = fixture({ syncAllFolders: true, selectedFolders: ['/', 'alpha/beta', 'legacy-old'] });
+  equal(cancelMissing(initiallyDisabled, 'legacy-old').disabled, true, 'Recovery choices are disabled from the first render when syncing all folders');
+  await click(cancelMissing(initiallyDisabled, 'legacy-old'));
+  equal(stateSnapshot(initiallyDisabled.state), initiallyDisabled.original);
+  equal(initiallyDisabled.saves, 0);
+  await click(initiallyDisabled.toggle('同步所有文件夹'));
+  equal(cancelMissing(initiallyDisabled, 'legacy-old').disabled, false);
+  await click(cancelMissing(initiallyDisabled, 'legacy-old'));
+  equal(selection(initiallyDisabled.state), ['/', 'alpha/beta']);
+  equal(initiallyDisabled.saves, 2, 'The explicit global-setting change and cancellation each save once');
+
+  const onlyMissing = fixture({ entries: [], selectedFolders: ['/', 'gone-a', 'gone-b', dangerousMissing] });
+  equal(onlyMissing.paths(), []);
+  equal(missingRows(onlyMissing).length, 3, 'An empty folder tree still exposes all unavailable selections');
+  equal(stateSnapshot(onlyMissing.state), onlyMissing.original);
+  equal(onlyMissing.saves, 0);
+  let expectedMissing = ['/', 'gone-a', 'gone-b', dangerousMissing];
+  for (const [index, folderPath] of ['gone-a', dangerousMissing, 'gone-b'].entries()) {
+    await click(cancelMissing(onlyMissing, folderPath));
+    expectedMissing = expectedMissing.filter(path => path !== folderPath);
+    equal(selection(onlyMissing.state), expectedMissing, 'Each cancellation is limited to the chosen unavailable path');
+    equal(onlyMissing.saves, index + 1);
+  }
+  equal(selection(onlyMissing.state), ['/'], 'Clearing every unavailable folder never removes root-file selection');
+  equal(onlyMissing.toggle('同步根目录文件').checked, true);
+  equal(onlyMissing.container.querySelector('svg,img,script'), null, 'Unavailable paths remain safe text even in an empty vault');
   console.log(`PASS: ${assertions} real-DOM folder-scope disclosure, lazy rendering, accessibility, root-file, selection, disabled-state and safe-name assertions; no network requests`);
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(() => dom.window.close());

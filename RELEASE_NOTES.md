@@ -2,6 +2,7 @@
 
 - Show only top-level folders by default in sync scope settings. Manually expand one level at a time, or use Expand all / Collapse all.
 - Keep expansion separate from synchronization: collapsing or reopening settings does not change saved folder selections, inheritance or the root-files option.
+- Show unavailable saved folders with an explicit Cancel selection control, so users can remove a stale path after a rename without deleting cloud notes or silently losing other selections.
 - Retain the 0.4.8 scope-safety and slider fixes. The directory's necessary whole-vault enumeration recommendation may still remain in all-folders mode.
 
 同步范围默认收起子文件夹，支持逐级展开和全部展开/收起；每次重新打开设置仍默认收起。文件夹勾选与展开分离，不修改用户原有同步范围。

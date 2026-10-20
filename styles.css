@@ -278,6 +278,31 @@
   transform: rotate(90deg);
 }
 
+.notecloud-folder-scope .notecloud-unavailable-folders {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  margin-top: 16px;
+  padding: 12px;
+}
+
+.notecloud-folder-scope .notecloud-unavailable-folders h4 {
+  color: var(--text-warning, var(--text-normal));
+  margin: 0 0 8px;
+}
+
+.notecloud-folder-scope .notecloud-unavailable-folder .setting-item-info {
+  min-width: 0;
+}
+
+.notecloud-folder-scope .notecloud-unavailable-folder .setting-item-name {
+  overflow-wrap: anywhere;
+}
+
+.notecloud-folder-scope .notecloud-unavailable-folder .setting-item-control {
+  flex: 0 0 auto;
+}
+
 @media (max-width: 600px) {
   .notecloud-folder-scope .notecloud-folder-children {
     margin-inline-start: 8px;

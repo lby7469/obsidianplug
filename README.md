@@ -57,6 +57,8 @@ The scope picker initially shows top-level folders only. Expand folders one leve
 
 One in-scope path snapshot protects against unsafe deletion assumptions, and remote changes are checked again against the current local path before applying. If a selected folder is missing, moved or cannot be read reliably, the sync pauses rather than treating that failure as an empty folder and deleting cloud files. Restore the folder or reselect your sync scope, then retry; removing a whole selected folder is not treated as permission to erase its cloud copy.
 
+Missing saved selections appear under **不可用的已选文件夹** (Unavailable selected folders), where you can explicitly remove a stale selection without deleting cloud notes or other selections. If a drive is temporarily disconnected, restore it first instead of clearing the selection.
+
 Before reading a file's content for upload, the plugin checks the supported extension, safe path, configured sync scope and file-size limit. Files outside the selected scope are not uploaded by sync. Narrower discovery is not an Obsidian permission sandbox: plugins still run with Vault API access. Enumerating paths does not upload every file, and merely renaming an API call would not remove this capability. Do not enable cloud sync in a vault you do not want the plugin to access.
 
 ## Contributors and project origin

@@ -5111,12 +5111,14 @@ function renderFolderScope(container, folders, state, persist) {
     toggle.toggleEl.setAttribute("aria-label", "\u540C\u6B65\u6240\u6709\u6587\u4EF6\u5939");
     toggle.setValue(state.syncAllFolders).onChange(async (value) => {
       state.syncAllFolders = value;
-      for (const control of controls) control.setDisabled(value);
+      for (const disable of controls) disable(value);
       await persist();
     });
   });
   const addSelection = (setting, path, label) => setting.addToggle((toggle) => {
-    controls.push(toggle);
+    controls.push((disabled) => {
+      toggle.setDisabled(disabled);
+    });
     toggle.toggleEl.setAttribute("aria-label", label);
     toggle.setValue(state.selectedFolders.includes(path)).setDisabled(state.syncAllFolders).onChange(async (value) => {
       state.selectedFolders = value ? [.../* @__PURE__ */ new Set([...state.selectedFolders, path])] : state.selectedFolders.filter((selected) => selected !== path);
@@ -5212,6 +5214,32 @@ function renderFolderScope(container, folders, state, persist) {
   });
   if (!roots.length) {
     section.createEl("p", { cls: "notecloud-folder-help", text: "\u6682\u65E0\u53EF\u5C55\u793A\u7684\u6587\u4EF6\u5939\uFF1B\u6839\u76EE\u5F55\u6587\u4EF6\u53EF\u5355\u72EC\u8BBE\u7F6E\u3002" });
+  }
+  const unavailable2 = [...new Set(state.selectedFolders)].filter((path) => path !== "/" && !nodes.has(path));
+  if (unavailable2.length) {
+    const group = section.createDiv({ cls: "notecloud-unavailable-folders" });
+    group.createEl("h4", { text: "\u4E0D\u53EF\u7528\u7684\u5DF2\u9009\u6587\u4EF6\u5939" });
+    group.createEl("p", { cls: "notecloud-folder-help", text: "\u8FD9\u4E9B\u76EE\u5F55\u53EF\u80FD\u5DF2\u5220\u9664\u3001\u6539\u540D\u6216\u6682\u65F6\u4E0D\u53EF\u7528\u3002\u6309\u6240\u9009\u6587\u4EF6\u5939\u540C\u6B65\u65F6\u4F1A\u5B89\u5168\u6682\u505C\uFF1B\u82E5\u53EA\u662F\u786C\u76D8\u6682\u65F6\u65AD\u5F00\uFF0C\u8BF7\u6062\u590D\u76EE\u5F55\u540E\u91CD\u65B0\u6253\u5F00\u8BBE\u7F6E\u3002\u4E0D\u4F1A\u81EA\u52A8\u6E05\u9664\u5DF2\u6709\u9009\u62E9\u3002" });
+    for (const path of unavailable2) {
+      const setting = new import_obsidian4.Setting(group).setName(path || "\uFF08\u7A7A\u8DEF\u5F84\uFF09").setDesc("\u53D6\u6D88\u53EA\u79FB\u9664\u8BE5\u76EE\u5F55\u7684\u540C\u6B65\u9009\u62E9\uFF0C\u4E0D\u5220\u9664\u4E91\u7AEF\u7B14\u8BB0\u3002\u76EE\u5F55\u6062\u590D\u540E\u53EF\u91CD\u65B0\u9009\u62E9\u3002").setClass("notecloud-unavailable-folder");
+      setting.settingEl.dataset.folderPath = path;
+      let cancelled = false;
+      setting.addButton((button) => {
+        button.buttonEl.setAttribute("aria-label", `\u53D6\u6D88\u4E0D\u53EF\u7528\u6587\u4EF6\u5939\u7684\u540C\u6B65\u9009\u62E9\uFF1A${path}`);
+        controls.push((disabled) => {
+          button.setDisabled(disabled || cancelled);
+        });
+        button.setButtonText("\u53D6\u6D88\u9009\u62E9").setDisabled(state.syncAllFolders).onClick(async () => {
+          if (state.syncAllFolders || cancelled) return;
+          state.selectedFolders = state.selectedFolders.filter((selected) => selected !== path);
+          cancelled = true;
+          button.setButtonText("\u5DF2\u53D6\u6D88").setDisabled(true);
+          button.buttonEl.setAttribute("aria-label", `\u5DF2\u53D6\u6D88\u4E0D\u53EF\u7528\u6587\u4EF6\u5939\uFF1A${path}`);
+          setting.setDesc("\u5DF2\u53D6\u6D88\u6B64\u76EE\u5F55\u7684\u540C\u6B65\u9009\u62E9\uFF1B\u5176\u4ED6\u9009\u62E9\u548C\u4E91\u7AEF\u7B14\u8BB0\u4FDD\u6301\u4E0D\u53D8\u3002");
+          await persist();
+        });
+      });
+    }
   }
 }
 
