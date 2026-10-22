@@ -16,7 +16,7 @@ class TFile {
 class TFolder {
   constructor(path) { this.path = path; this.name = path.split('/').pop(); this.children = []; }
 }
-function harness({ bundle = path.join(__dirname, "../main.js"), files = [], latency = 0, mobile = false } = {}) {
+function harness({ bundle = path.join(__dirname, "../main.js"), bundleSource, files = [], latency = 0, mobile = false, runtime = {} } = {}) {
   const notices = [], metrics = { requests: 0, reads: 0, saves: 0, routes: [], peak: 0, active: 0 };
   let network = async () => { throw Error("Unexpected network request in isolated test"); };
   async function request(url, options) {
@@ -31,8 +31,8 @@ function harness({ bundle = path.join(__dirname, "../main.js"), files = [], late
       const arrayBuffer = await result.arrayBuffer(), text = new TextDecoder().decode(arrayBuffer);
       return { status: result.status, headers: Object.fromEntries(result.headers), arrayBuffer, text, get json() { return JSON.parse(text); } };
     } };
-  const context = vm.createContext({ module: { exports: {} }, require: name => { assert.equal(name, "obsidian"); return obsidian; }, crypto: webcrypto, TextEncoder, TextDecoder, Uint8Array, ArrayBuffer, Headers, Error, btoa, console, URL, fetch: request, setTimeout, clearTimeout, window: { setTimeout, clearTimeout, setInterval, clearInterval, open() {} } });
-  vm.runInContext(fs.readFileSync(bundle, "utf8"), context);
+  const context = vm.createContext({ module: { exports: {} }, require: name => { assert.equal(name, "obsidian"); return obsidian; }, crypto: webcrypto, TextEncoder, TextDecoder, Uint8Array, ArrayBuffer, Headers, Error, btoa, console, URL, fetch: request, setTimeout, clearTimeout, ...(runtime.document ? { document: runtime.document } : {}), window: { setTimeout, clearTimeout, setInterval, clearInterval, open() {}, ...runtime.window } });
+  vm.runInContext(bundleSource || fs.readFileSync(bundle, "utf8"), context);
   const instance = new context.module.exports.default(), store = new Map(files.map(file => [file.path, file]));
   const folders = new Map();
   const folder = directory => {

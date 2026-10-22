@@ -1,3 +1,14 @@
+# NoteCloud Sync 0.5.0
+
+- Request an automatic sync shortly after editing pauses, with a maximum debounce while editing continues. Also check on foreground and network recovery; keep the existing periodic check as a fallback.
+- Serialize automatic work with manual sync, retain pending edits made during a run, and cancel queued work when stopping, switching accounts, logging out or unloading. Partial or skipped work no longer reports all changes complete.
+- Open the web billing page from purchase and renewal entries. Payment requires administrator verification; a submitted payment notice does not grant quota.
+- Rewrite the README around features, installation, everyday use and button explanations; move developer details to DEVELOPMENT.md.
+
+编辑停止约两秒自动请求同步，持续编辑时最长约十秒检查；手机强杀或系统挂起后无法保证上传继续。关闭或切换设备前请等待「全部完成」。仍保留默认冲突副本与版本校验，不提供无条件覆盖的推送/拉取。
+
+---
+
 # NoteCloud Sync 0.4.9
 
 - Show only top-level folders by default in sync scope settings. Manually expand one level at a time, or use Expand all / Collapse all.

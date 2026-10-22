@@ -1,7 +1,7 @@
 {
   "id": "notecloud-sync",
   "name": "NoteCloud Sync",
-  "version": "0.4.9",
+  "version": "0.5.0",
   "minAppVersion": "1.5.0",
   "description": "Sync notes with a NoteCloud account, preserve folders, and read or share notes on the web.",
   "author": "NoteCloud",

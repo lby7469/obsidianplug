@@ -5243,6 +5243,98 @@ function renderFolderScope(container, folders, state, persist) {
   }
 }
 
+// src/auto-sync-coordinator.ts
+var AutoSyncCoordinator = class {
+  constructor(options2) {
+    this.options = options2;
+    __publicField(this, "clock");
+    __publicField(this, "timer");
+    __publicField(this, "firstChangeAt");
+    __publicField(this, "serial", 0);
+    __publicField(this, "generation", 0);
+    __publicField(this, "runGeneration", 0);
+    __publicField(this, "cancellation", 0);
+    __publicField(this, "runCancellation", 0);
+    __publicField(this, "running", false);
+    __publicField(this, "disposed", false);
+    this.clock = options2.clock || {
+      now: () => Date.now(),
+      set: (callback, delay) => window.setTimeout(callback, delay),
+      clear: (timer) => window.clearTimeout(timer)
+    };
+  }
+  changed() {
+    var _a2;
+    this.generation++;
+    if (!this.eligible()) {
+      this.clearQueued();
+      return;
+    }
+    if (this.running) return;
+    const now = this.clock.now();
+    (_a2 = this.firstChangeAt) != null ? _a2 : this.firstChangeAt = now;
+    this.schedule(Math.max(0, Math.min(now + 2e3, this.firstChangeAt + 1e4) - now));
+  }
+  wake() {
+    if (!this.eligible() || this.running) return;
+    this.schedule(300);
+  }
+  // Starting work while a page is being hidden is best effort, not a promise
+  // that a mobile OS will keep the process, network, or timers alive.
+  flush() {
+    if (!this.eligible() || this.running) return;
+    this.clearQueued();
+    this.dispatch(this.options.identity());
+  }
+  begin() {
+    this.clearQueued();
+    this.running = true;
+    this.runGeneration = this.generation;
+    this.runCancellation = this.cancellation;
+  }
+  finish(needsFollowUp) {
+    this.running = false;
+    if (needsFollowUp && this.generation !== this.runGeneration && this.runCancellation === this.cancellation && this.eligible()) {
+      this.firstChangeAt = this.clock.now();
+      this.schedule(2e3);
+    }
+  }
+  cancel() {
+    this.cancellation++;
+    this.clearQueued();
+  }
+  dispose() {
+    this.disposed = true;
+    this.cancel();
+  }
+  eligible() {
+    return !this.disposed && this.options.allowed() && !!this.options.identity();
+  }
+  clearQueued() {
+    this.serial++;
+    if (this.timer !== void 0) this.clock.clear(this.timer);
+    this.timer = void 0;
+    this.firstChangeAt = void 0;
+  }
+  schedule(delay) {
+    const first = this.firstChangeAt;
+    this.clearQueued();
+    this.firstChangeAt = first;
+    const serial = this.serial, identity = this.options.identity();
+    this.timer = this.clock.set(() => {
+      if (serial !== this.serial) return;
+      this.timer = void 0;
+      this.firstChangeAt = void 0;
+      this.dispatch(identity);
+    }, delay);
+  }
+  dispatch(identity) {
+    if (!this.eligible() || this.running || identity !== this.options.identity()) return;
+    void this.options.run().catch(() => {
+    });
+  }
+};
+
 // src/plugin-types.ts
 function objectValue(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("\u670D\u52A1\u5668\u8FD4\u56DE\u7684\u6570\u636E\u683C\u5F0F\u5F02\u5E38");
@@ -5456,6 +5548,14 @@ var NoteCloudPlugin = class extends h.Plugin {
     __publicField(this, "startupStatusTimer");
     __publicField(this, "renewalResumeTimer");
     __publicField(this, "autoSyncTimer");
+    __publicField(this, "autoSyncReady", false);
+    __publicField(this, "startupSyncSuppressed", false);
+    __publicField(this, "autoSyncCoordinator");
+    __publicField(this, "folderChangeGeneration", 0);
+    __publicField(this, "scopeSyncGeneration", 0);
+    __publicField(this, "scopeSaveGeneration", 0);
+    __publicField(this, "scopeSaveBlocked", false);
+    __publicField(this, "scopeSyncRequest");
     __publicField(this, "disposed", false);
     __publicField(this, "authEpoch", 0);
     __publicField(this, "authCompleting", false);
@@ -5509,9 +5609,7 @@ var NoteCloudPlugin = class extends h.Plugin {
       this.registerEvent(this.app.vault.on("delete", (file) => this.markPending(file)));
       this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.markPending(file, oldPath)));
       this.configureAutoSync();
-      if (this.settings.autoSync) {
-        this.startupSyncTimer = window.setTimeout(() => void this.sync(false), 5e3);
-      }
+      this.initializeAutoSync();
       this.startupStatusTimer = window.setTimeout(() => void this.checkServiceStatus(false), 8e3);
     }
     initialize(this);
@@ -5523,40 +5621,117 @@ var NoteCloudPlugin = class extends h.Plugin {
     this.addCommand({ id: "send-feedback", name: "\u610F\u89C1\u53CD\u9988", callback: () => openFeedback(this) });
   }
   onunload() {
-    var _a2, _b, _c;
+    var _a2, _b, _c, _d;
     this.disposed = true;
     this.authEpoch = (this.authEpoch || 0) + 1;
     this.cancelSync();
+    (_a2 = this.autoSyncCoordinator) == null ? void 0 : _a2.dispose();
     window.clearTimeout(this.startupSyncTimer);
     window.clearTimeout(this.startupStatusTimer);
     window.clearTimeout(this.renewalResumeTimer);
-    (_a2 = this.announcementButton) == null ? void 0 : _a2.remove();
-    (_b = this.renewalButton) == null ? void 0 : _b.remove();
+    (_b = this.announcementButton) == null ? void 0 : _b.remove();
+    (_c = this.renewalButton) == null ? void 0 : _c.remove();
     this.renewalTop = void 0;
     {
       if (this.autoSyncTimer) {
         window.clearInterval(this.autoSyncTimer);
       }
-      (_c = this.floatingButton) == null ? void 0 : _c.remove();
+      (_d = this.floatingButton) == null ? void 0 : _d.remove();
     }
   }
   configureAutoSync() {
+    var _a2;
     {
       if (this.autoSyncTimer) {
         window.clearInterval(this.autoSyncTimer);
       }
       this.autoSyncTimer = void 0;
       if (this.settings.autoSync) {
-        this.autoSyncTimer = window.setInterval(() => void this.sync(false), Math.max(1, Math.min(60, this.settings.syncIntervalMinutes || 5)) * 6e4);
-      }
+        this.autoSyncTimer = window.setInterval(() => this.requestAutoSync(), Math.max(1, Math.min(60, this.settings.syncIntervalMinutes || 5)) * 6e4);
+      } else (_a2 = this.autoSyncCoordinator) == null ? void 0 : _a2.cancel();
     }
+  }
+  autoSyncAllowed() {
+    var _a2;
+    return this.autoSyncReady && !this.disposed && !this.scopeSaveBlocked && this.settings.autoSync && !this.authCompleting && !this.settings.accountSwitchPending && !(this.settings.pendingAuth && Date.now() - this.settings.pendingAuth.createdAt < 10 * 60 * 1e3) && !!(this.settings.refreshToken || this.settings.token && (!this.settings.tokenExpiresAt || this.settings.tokenExpiresAt > Date.now())) && !!((_a2 = this.settings.account) == null ? void 0 : _a2.id) && (!this.settings.stateAccountId || this.settings.stateAccountId === this.settings.account.id) && this.settings.account.syncWritesAllowed !== false && (this.settings.syncAllFolders || this.settings.selectedFolders.length > 0);
+  }
+  automaticSync() {
+    return this.autoSyncCoordinator || (this.autoSyncCoordinator = new AutoSyncCoordinator({
+      allowed: () => this.autoSyncAllowed(),
+      identity: () => {
+        var _a2;
+        return [this.authEpoch, this.settings.serverUrl, ((_a2 = this.settings.account) == null ? void 0 : _a2.id) || this.settings.stateAccountId || ""].join("|");
+      },
+      run: () => this.sync(false)
+    }));
+  }
+  requestAutoSync() {
+    this.automaticSync().wake();
+  }
+  async persistSyncScope() {
+    var _a2, _b, _c, _d, _e;
+    const generation = ++this.scopeSyncGeneration;
+    const saveGeneration = ++this.scopeSaveGeneration;
+    this.scopeSaveBlocked = true;
+    const request = { generation, epoch: this.authEpoch || 0, serverUrl: this.settings.serverUrl, accountId: ((_a2 = this.settings.account) == null ? void 0 : _a2.id) || this.settings.stateAccountId || "", saved: false };
+    (_b = this.autoSyncCoordinator) == null ? void 0 : _b.cancel();
+    this.scopeSyncRequest = this.settings.autoSync ? request : void 0;
+    if (this.syncRun) {
+      this.syncRun.cancelled = true;
+      this.setStatus("\u540C\u6B65\u8303\u56F4\u5DF2\u8C03\u6574\uFF0C\u6B63\u5728\u505C\u6B62\u539F\u8303\u56F4\u540C\u6B65", "syncing");
+    }
+    for (const path of this.dirtyPaths || []) if (!this.fileInScope(path)) (_c = this.dirtyPaths) == null ? void 0 : _c.delete(path);
+    try {
+      await this.saveSettings();
+    } catch (error) {
+      if (((_d = this.scopeSyncRequest) == null ? void 0 : _d.generation) === generation) this.scopeSyncRequest = void 0;
+      throw error;
+    }
+    if (saveGeneration === this.scopeSaveGeneration) this.scopeSaveBlocked = false;
+    if (generation === this.scopeSyncGeneration && ((_e = this.scopeSyncRequest) == null ? void 0 : _e.generation) === generation) this.scopeSyncRequest.saved = true;
+    if (generation === this.scopeSyncGeneration && !this.syncing) this.resumeScopeSync();
+  }
+  resumeScopeSync() {
+    var _a2;
+    const request = this.scopeSyncRequest;
+    if (!request || !request.saved || this.syncing) return;
+    this.scopeSyncRequest = void 0;
+    if (!this.disposed && this.settings.autoSync && request.generation === this.scopeSyncGeneration && request.epoch === (this.authEpoch || 0) && request.serverUrl === this.settings.serverUrl && request.accountId === (((_a2 = this.settings.account) == null ? void 0 : _a2.id) || this.settings.stateAccountId || "")) this.requestAutoSync();
+  }
+  initializeAutoSync() {
+    this.app.workspace.onLayoutReady(() => {
+      if (this.disposed) return;
+      this.startupSyncTimer = window.setTimeout(() => {
+        if (this.disposed) return;
+        this.autoSyncReady = true;
+        if (!this.startupSyncSuppressed) this.requestAutoSync();
+      }, 5e3);
+    });
+    const foreground = () => {
+      if (!document.hidden) this.requestAutoSync();
+    };
+    const background = () => {
+      if (this.pendingChanges && this.autoSyncAllowed()) this.automaticSync().flush();
+    };
+    this.registerDomEvent(window, "focus", foreground);
+    this.registerDomEvent(window, "online", foreground);
+    this.registerDomEvent(document, "visibilitychange", () => document.hidden ? background() : foreground());
+    this.registerDomEvent(window, "pagehide", background);
+  }
+  folderInScope(path) {
+    return safeSyncPath(path, this.app.vault.configDir) && (this.settings.syncAllFolders || this.settings.selectedFolders.some((folder) => folder !== "/" && (path === folder || path.startsWith(folder + "/") || folder.startsWith(path + "/"))));
   }
   markPending(file, oldPath) {
     this.dirtyPaths || (this.dirtyPaths = /* @__PURE__ */ new Set());
     this.digestCache || (this.digestCache = /* @__PURE__ */ new Map());
+    let changed = false;
     if (file && !(file instanceof h.TFile)) {
-      this.digestCache.clear();
-      this.pendingChanges = true;
+      if ([file.path, oldPath].some((path) => path && this.folderInScope(path))) {
+        this.digestCache.clear();
+        this.pendingChanges = true;
+        this.folderChangeGeneration++;
+        changed = true;
+      }
     } else
       for (const path of [file == null ? void 0 : file.path, oldPath]) {
         if (!path || !safeSyncPath(path, this.app.vault.configDir) || !SUPPORTED_EXTENSIONS.has((path.split(".").pop() || "").toLowerCase()) || !this.fileInScope(path))
@@ -5564,7 +5739,12 @@ var NoteCloudPlugin = class extends h.Plugin {
         this.dirtyPaths.add(path);
         this.digestCache.delete(path);
         this.pendingChanges = true;
+        changed = true;
       }
+    if (changed) {
+      this.automaticSync().changed();
+      if (!this.syncing) this.setStatus(this.settings.autoSync ? "\u6709\u5F85\u540C\u6B65\u7684\u66F4\u6539\uFF0C\u7B49\u5F85\u81EA\u52A8\u540C\u6B65" : "\u6709\u5F85\u540C\u6B65\u7684\u66F4\u6539\uFF0C\u8BF7\u70B9\u51FB\u7ACB\u5373\u540C\u6B65", "idle");
+    }
     this.updateSyncButton();
   }
   checkRun() {
@@ -5812,8 +5992,10 @@ var NoteCloudPlugin = class extends h.Plugin {
     return this.beginWebAuth("forgot");
   }
   async beginWebAuth(action = "login") {
+    var _a2;
     if (this.syncing)
       return void new h.Notice("\u8BF7\u7B49\u5F53\u524D\u540C\u6B65\u5B8C\u6210\u540E\u518D\u64CD\u4F5C\u8D26\u53F7");
+    (_a2 = this.autoSyncCoordinator) == null ? void 0 : _a2.cancel();
     const verifier = base64Url(crypto.getRandomValues(new Uint8Array(48))), state = base64Url(crypto.getRandomValues(new Uint8Array(24))), challenge = base64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
     {
       this.settings.pendingAuth = { verifier, state, createdAt: Date.now() };
@@ -5868,6 +6050,7 @@ var NoteCloudPlugin = class extends h.Plugin {
       new h.Notice(`NoteCloud \u767B\u5F55\u5931\u8D25\uFF1A${error instanceof Error ? error.message : "\u8BF7\u91CD\u8BD5"}`);
     } finally {
       this.authCompleting = false;
+      this.requestAutoSync();
     }
   }
   async refreshPluginToken() {
@@ -5926,7 +6109,7 @@ var NoteCloudPlugin = class extends h.Plugin {
             window.clearTimeout(this.renewalResumeTimer);
             this.renewalResumeTimer = window.setTimeout(() => {
               if (!this.disposed)
-                void this.sync(false);
+                this.requestAutoSync();
             }, 500);
           }
         }
@@ -5953,6 +6136,12 @@ var NoteCloudPlugin = class extends h.Plugin {
     void this.refreshAccount(true);
   }
   cancelSync() {
+    var _a2;
+    this.scopeSyncGeneration++;
+    this.scopeSyncRequest = void 0;
+    (_a2 = this.autoSyncCoordinator) == null ? void 0 : _a2.cancel();
+    this.startupSyncSuppressed = true;
+    window.clearTimeout(this.renewalResumeTimer);
     if (this.syncRun) {
       this.syncRun.cancelled = true;
       this.setStatus("\u6B63\u5728\u505C\u6B62\uFF0C\u5DF2\u5B8C\u6210\u7684\u6587\u4EF6\u4F1A\u4FDD\u7559", "syncing");
@@ -5977,11 +6166,12 @@ var NoteCloudPlugin = class extends h.Plugin {
     throw new Error("\u8BF7\u5728\u5DF2\u6253\u5F00\u7684 NoteCloud \u7F51\u9875\u4E2D\u5B8C\u6210\u767B\u5F55");
   }
   async logout() {
-    var _a2, _b;
+    var _a2, _b, _c;
     if (this.syncing)
       return void new h.Notice("\u8BF7\u7B49\u5F53\u524D\u540C\u6B65\u5B8C\u6210\u540E\u518D\u9000\u51FA\u8D26\u53F7");
     this.authEpoch = (this.authEpoch || 0) + 1;
-    (_b = this.settings).stateAccountId || (_b.stateAccountId = (_a2 = this.settings.account) == null ? void 0 : _a2.id);
+    (_a2 = this.autoSyncCoordinator) == null ? void 0 : _a2.cancel();
+    (_c = this.settings).stateAccountId || (_c.stateAccountId = (_b = this.settings.account) == null ? void 0 : _b.id);
     this.settings.pendingAuth = void 0;
     {
       this.settings.token = "";
@@ -6020,7 +6210,7 @@ var NoteCloudPlugin = class extends h.Plugin {
       }
       const t = objectValue(await this.authorizedRequest("/v1/auth/web-ticket", { method: "POST", body: "{}" }));
       const url = new URL(stringValue(t.url));
-      if (destination === "/feedback")
+      if (destination === "/feedback" || destination === "/billing")
         url.pathname = destination;
       window.open(url.href, "_blank", "noopener,noreferrer");
     } catch (t) {
@@ -6189,6 +6379,11 @@ var NoteCloudPlugin = class extends h.Plugin {
   }
   async sync(t) {
     var _a2, _b;
+    if (this.scopeSaveBlocked) {
+      if (t) new h.Notice("\u540C\u6B65\u8303\u56F4\u5C1A\u672A\u6210\u529F\u4FDD\u5B58\uFF0C\u8BF7\u91CD\u65B0\u8C03\u6574\u6216\u4FDD\u5B58\u540C\u6B65\u8303\u56F4\u540E\u518D\u8BD5");
+      return;
+    }
+    if (t) this.startupSyncSuppressed = false;
     if (this.authCompleting || this.settings.pendingAuth && Date.now() - this.settings.pendingAuth.createdAt < 10 * 60 * 1e3) {
       if (t)
         new h.Notice("\u8BF7\u5148\u5B8C\u6210\u7F51\u9875\u4E0A\u7684\u8D26\u53F7\u64CD\u4F5C\uFF1B\u767B\u5F55\u8BF7\u6C42 10 \u5206\u949F\u540E\u81EA\u52A8\u5931\u6548");
@@ -6224,11 +6419,14 @@ var NoteCloudPlugin = class extends h.Plugin {
       return;
     }
     this.syncing = true;
+    const automatic = this.automaticSync();
+    automatic.begin();
+    const folderGeneration = this.folderChangeGeneration;
     const run = this.syncRun = { cancelled: false, epoch: this.authEpoch || 0 };
     this.digestCache || (this.digestCache = /* @__PURE__ */ new Map());
     this.dirtyPaths || (this.dirtyPaths = /* @__PURE__ */ new Set());
     this.setStatus("\u6B63\u5728\u540C\u6B65\u2026", "syncing");
-    let completed = 0, conflicts = 0, skipped = 0, scanned = 0;
+    let completed = 0, conflicts = 0, skipped = 0, scanned = 0, successfulPass = false;
     const errors = [], started = Date.now();
     let checkpointAt = Date.now(), checkpointCount = 0;
     const checkpoint = async () => {
@@ -6362,11 +6560,15 @@ var NoteCloudPlugin = class extends h.Plugin {
         }
       }, () => run.cancelled || this.disposed);
       this.checkRun();
-      this.settings.lastSyncAt = (/* @__PURE__ */ new Date()).toISOString();
+      for (const path of this.dirtyPaths) {
+        if (!localPaths.has(path) && !remote.has(path) && !this.app.vault.getAbstractFileByPath(path)) this.dirtyPaths.delete(path);
+      }
       this.syncedThisSession = true;
-      this.pendingChanges = errors.length > 0 || skipped > 0 || this.dirtyPaths.size > 0;
-      const summary = "\u5DF2\u540C\u6B65 " + completed + " \u9879" + (conflicts ? "\uFF0C\u5904\u7406 " + conflicts + " \u4E2A\u51B2\u7A81" : "") + (skipped ? "\uFF0C\u8DF3\u8FC7 " + skipped + " \u9879" : "") + (errors.length ? "\uFF0C" + errors.length + " \u9879\u5931\u8D25\uFF1A" + errors[0].message : "");
-      this.setStatus(summary, errors.length ? "error" : "success");
+      this.pendingChanges = errors.length > 0 || skipped > 0 || this.dirtyPaths.size > 0 || this.folderChangeGeneration !== folderGeneration;
+      if (!this.pendingChanges) this.settings.lastSyncAt = (/* @__PURE__ */ new Date()).toISOString();
+      successfulPass = errors.length === 0;
+      const summary = "\u5DF2\u540C\u6B65 " + completed + " \u9879" + (conflicts ? "\uFF0C\u5904\u7406 " + conflicts + " \u4E2A\u51B2\u7A81" : "") + (skipped ? "\uFF0C\u8DF3\u8FC7 " + skipped + " \u9879" : "") + (errors.length ? "\uFF0C" + errors.length + " \u9879\u5931\u8D25\uFF1A" + errors[0].message : "") + (this.pendingChanges ? "\uFF1B\u4ECD\u6709\u5F85\u540C\u6B65\uFF0C\u90E8\u5206\u672A\u5B8C\u6210" : "\uFF0C\u5168\u90E8\u5B8C\u6210");
+      this.setStatus(summary, errors.length ? "error" : this.pendingChanges ? "idle" : "success");
       if (t)
         new h.Notice("NoteCloud " + summary);
     } catch (error) {
@@ -6385,6 +6587,8 @@ var NoteCloudPlugin = class extends h.Plugin {
       }
       this.syncing = false;
       this.syncRun = void 0;
+      automatic.finish(successfulPass && this.pendingChanges && !run.cancelled && !this.disposed);
+      this.resumeScopeSync();
       this.updateSyncButton();
     }
   }
@@ -6470,7 +6674,7 @@ var NoteCloudSettingsTab = class extends h.PluginSettingTab {
           this.refreshDisplay();
         }
       }));
-      q2.addButton((b) => b.setButtonText("\u8D2D\u4E70\u989D\u5EA6").setCta().onClick(() => window.open(`${s.serverUrl.replace(/\/$/, "")}/?purchase=1`, "_blank", "noopener,noreferrer")));
+      q2.addButton((b) => b.setButtonText("\u8D2D\u4E70\u989D\u5EA6").setCta().onClick(() => void this.plugin.openWebPortal("/billing")));
     }
     if (this.redeemExpanded) {
       let code = s.quotaCode || "";
@@ -6493,7 +6697,7 @@ var NoteCloudSettingsTab = class extends h.PluginSettingTab {
       }));
     }
     e.createEl("h3", { text: "\u540C\u6B65" });
-    new h.Setting(e).setName("\u81EA\u52A8\u540C\u6B65").addToggle((b) => b.setValue(s.autoSync !== false).onChange(async (v) => {
+    new h.Setting(e).setName("\u81EA\u52A8\u540C\u6B65").setDesc("\u7F16\u8F91\u505C\u6B62\u7EA6 2 \u79D2\u540E\u540C\u6B65\uFF1B\u8FD4\u56DE\u524D\u53F0\u3001\u7F51\u7EDC\u6062\u590D\u65F6\u6821\u5BF9\u3002\u5207\u5230\u540E\u53F0\u65F6\u4EC5\u5C3D\u529B\u540C\u6B65\uFF0C\u5F3A\u5236\u5173\u95ED\u540E\u65E0\u6CD5\u7EE7\u7EED\u4E0A\u4F20\u3002").addToggle((b) => b.setValue(s.autoSync !== false).onChange(async (v) => {
       {
         s.autoSync = v;
         await this.persist();
@@ -6503,7 +6707,7 @@ var NoteCloudSettingsTab = class extends h.PluginSettingTab {
     }));
     if (s.autoSync !== false) {
       let input;
-      new h.Setting(e).setClass("notecloud-interval-input").setName("\u81EA\u52A8\u540C\u6B65\u95F4\u9694").addText((b) => {
+      new h.Setting(e).setClass("notecloud-interval-input").setName("\u5B9A\u671F\u4E91\u7AEF\u6821\u5BF9\u95F4\u9694").addText((b) => {
         {
           input = b.inputEl;
           input.type = "number";
@@ -6540,7 +6744,9 @@ var NoteCloudSettingsTab = class extends h.PluginSettingTab {
     } catch (e2) {
       new h.Setting(e).setName("\u6587\u4EF6\u5939\u5217\u8868\u6682\u4E0D\u53EF\u7528").setDesc("\u4ED3\u5E93\u76EE\u5F55\u5C1A\u672A\u5C31\u7EEA\u6216\u53D1\u751F\u53D8\u5316\uFF0C\u8BF7\u7A0D\u540E\u91CD\u65B0\u6253\u5F00\u8BBE\u7F6E\u3002\u73B0\u6709\u540C\u6B65\u8303\u56F4\u4E0D\u4F1A\u6539\u53D8\u3002");
     }
-    renderFolderScope(e, folders, s, () => this.persist());
+    renderFolderScope(e, folders, s, () => this.plugin.persistSyncScope().catch(() => {
+      new h.Notice("\u540C\u6B65\u8303\u56F4\u4FDD\u5B58\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\uFF1B\u539F\u8303\u56F4\u540C\u6B65\u5DF2\u505C\u6B62");
+    }));
     e.createEl("h3", { text: "\u6587\u4EF6\u5904\u7406" });
     let serverMaxMb = Math.max(1, Math.floor((((_a2 = s.serviceStatus) == null ? void 0 : _a2.maxUploadBytes) || 200 * 1024 * 1024) / 1024 / 1024));
     const fileSizeDescription = () => `\u8D85\u8FC7 ${s.maxFileSizeMB} MB \u7684\u6587\u4EF6\u6682\u4E0D\u540C\u6B65\uFF1B\u670D\u52A1\u7AEF\u5F53\u524D\u4E0A\u9650 ${serverMaxMb} MB\u3002\u79FB\u52A8\u7AEF\u5EFA\u8BAE\u4FDD\u6301 50 MB \u4EE5\u4E0B`;

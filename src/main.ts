@@ -5,6 +5,7 @@ import * as renewal from "./renewal";
 import { mergeLines } from "./merge";
 import { scopedVaultFiles, selectableVaultFolders } from "./vault-scope";
 import { renderFolderScope } from "./folder-scope-ui";
+import { AutoSyncCoordinator } from "./auto-sync-coordinator";
 import { errorMessage, errorStatus, objectValue, readAccount, readManifest, readPolicy, readSettings, readStatus, readTokens, readUpload, retryAfter, splitLinesAfterLF, stringValue } from "./plugin-types";
 import type { Account, AuthPolicy, PluginSettings, RemoteFile, RequestOptions } from "./plugin-types";
 interface FileStamp {
@@ -84,6 +85,14 @@ export default class NoteCloudPlugin extends h.Plugin {
     startupStatusTimer?: number;
     renewalResumeTimer?: number;
     autoSyncTimer?: number;
+    autoSyncReady = false;
+    startupSyncSuppressed = false;
+    autoSyncCoordinator?: AutoSyncCoordinator;
+    folderChangeGeneration = 0;
+    scopeSyncGeneration = 0;
+    scopeSaveGeneration = 0;
+    scopeSaveBlocked = false;
+    scopeSyncRequest?: { generation: number; epoch: number; serverUrl: string; accountId: string; saved: boolean };
     disposed = false;
     authEpoch = 0;
     authCompleting = false;
@@ -152,9 +161,7 @@ export default class NoteCloudPlugin extends h.Plugin {
             this.registerEvent(this.app.vault.on("delete", file => this.markPending(file)));
             this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.markPending(file, oldPath)));
             this.configureAutoSync();
-            if (this.settings.autoSync) {
-                this.startupSyncTimer = window.setTimeout(() => void this.sync(false), 5e3);
-            }
+            this.initializeAutoSync();
             this.startupStatusTimer = window.setTimeout(() => void this.checkServiceStatus(false), 8e3);
         }
         community.initialize(this);
@@ -169,6 +176,7 @@ export default class NoteCloudPlugin extends h.Plugin {
         this.disposed = true;
         this.authEpoch = (this.authEpoch || 0) + 1;
         this.cancelSync();
+        this.autoSyncCoordinator?.dispose();
         window.clearTimeout(this.startupSyncTimer);
         window.clearTimeout(this.startupStatusTimer);
         window.clearTimeout(this.renewalResumeTimer);
@@ -189,16 +197,86 @@ export default class NoteCloudPlugin extends h.Plugin {
             }
             this.autoSyncTimer = void 0;
             if (this.settings.autoSync) {
-                this.autoSyncTimer = window.setInterval(() => void this.sync(false), Math.max(1, Math.min(60, this.settings.syncIntervalMinutes || 5)) * 6e4);
+                this.autoSyncTimer = window.setInterval(() => this.requestAutoSync(), Math.max(1, Math.min(60, this.settings.syncIntervalMinutes || 5)) * 6e4);
             }
+            else this.autoSyncCoordinator?.cancel();
         }
+    }
+    autoSyncAllowed() {
+        return this.autoSyncReady && !this.disposed && !this.scopeSaveBlocked && this.settings.autoSync && !this.authCompleting && !this.settings.accountSwitchPending &&
+            !(this.settings.pendingAuth && Date.now() - this.settings.pendingAuth.createdAt < 10 * 60 * 1000) &&
+            !!(this.settings.refreshToken || this.settings.token && (!this.settings.tokenExpiresAt || this.settings.tokenExpiresAt > Date.now())) &&
+            !!this.settings.account?.id && (!this.settings.stateAccountId || this.settings.stateAccountId === this.settings.account.id) && this.settings.account.syncWritesAllowed !== false &&
+            (this.settings.syncAllFolders || this.settings.selectedFolders.length > 0);
+    }
+    automaticSync() {
+        return this.autoSyncCoordinator ||= new AutoSyncCoordinator({
+            allowed: () => this.autoSyncAllowed(),
+            identity: () => [this.authEpoch, this.settings.serverUrl, this.settings.account?.id || this.settings.stateAccountId || ""].join("|"),
+            run: () => this.sync(false)
+        });
+    }
+    requestAutoSync() { this.automaticSync().wake(); }
+    async persistSyncScope() {
+        const generation = ++this.scopeSyncGeneration;
+        const saveGeneration = ++this.scopeSaveGeneration;
+        this.scopeSaveBlocked = true;
+        const request = { generation, epoch: this.authEpoch || 0, serverUrl: this.settings.serverUrl, accountId: this.settings.account?.id || this.settings.stateAccountId || "", saved: false };
+        this.autoSyncCoordinator?.cancel();
+        this.scopeSyncRequest = this.settings.autoSync ? request : undefined;
+        if (this.syncRun) {
+            this.syncRun.cancelled = true;
+            this.setStatus("同步范围已调整，正在停止原范围同步", "syncing");
+        }
+        for (const path of this.dirtyPaths || []) if (!this.fileInScope(path)) this.dirtyPaths?.delete(path);
+        try { await this.saveSettings(); }
+        catch (error) {
+            if (this.scopeSyncRequest?.generation === generation) this.scopeSyncRequest = undefined;
+            throw error;
+        }
+        if (saveGeneration === this.scopeSaveGeneration) this.scopeSaveBlocked = false;
+        if (generation === this.scopeSyncGeneration && this.scopeSyncRequest?.generation === generation) this.scopeSyncRequest.saved = true;
+        if (generation === this.scopeSyncGeneration && !this.syncing) this.resumeScopeSync();
+    }
+    resumeScopeSync() {
+        const request = this.scopeSyncRequest;
+        if (!request || !request.saved || this.syncing) return;
+        this.scopeSyncRequest = undefined;
+        if (!this.disposed && this.settings.autoSync && request.generation === this.scopeSyncGeneration && request.epoch === (this.authEpoch || 0) && request.serverUrl === this.settings.serverUrl && request.accountId === (this.settings.account?.id || this.settings.stateAccountId || "")) this.requestAutoSync();
+    }
+    initializeAutoSync() {
+        this.app.workspace.onLayoutReady(() => {
+            if (this.disposed) return;
+            this.startupSyncTimer = window.setTimeout(() => {
+                if (this.disposed) return;
+                this.autoSyncReady = true;
+                if (!this.startupSyncSuppressed) this.requestAutoSync();
+            }, 5000);
+        });
+        const foreground = () => { if (!document.hidden) this.requestAutoSync(); };
+        const background = () => {
+            if (this.pendingChanges && this.autoSyncAllowed()) this.automaticSync().flush();
+        };
+        this.registerDomEvent(window, "focus", foreground);
+        this.registerDomEvent(window, "online", foreground);
+        this.registerDomEvent(document, "visibilitychange", () => document.hidden ? background() : foreground());
+        this.registerDomEvent(window, "pagehide", background);
+    }
+    folderInScope(path: string) {
+        return support.safeSyncPath(path, this.app.vault.configDir) && (this.settings.syncAllFolders || this.settings.selectedFolders.some(folder =>
+            folder !== "/" && (path === folder || path.startsWith(folder + "/") || folder.startsWith(path + "/"))));
     }
     markPending(file?: h.TAbstractFile, oldPath?: string) {
         this.dirtyPaths ||= new Set();
         this.digestCache ||= new Map();
+        let changed = false;
         if (file && !(file instanceof h.TFile)) {
-            this.digestCache.clear();
-            this.pendingChanges = true;
+            if ([file.path, oldPath].some(path => path && this.folderInScope(path))) {
+                this.digestCache.clear();
+                this.pendingChanges = true;
+                this.folderChangeGeneration++;
+                changed = true;
+            }
         }
         else
             for (const path of [file?.path, oldPath]) {
@@ -207,7 +285,12 @@ export default class NoteCloudPlugin extends h.Plugin {
                 this.dirtyPaths.add(path);
                 this.digestCache.delete(path);
                 this.pendingChanges = true;
+                changed = true;
             }
+        if (changed) {
+            this.automaticSync().changed();
+            if (!this.syncing) this.setStatus(this.settings.autoSync ? "有待同步的更改，等待自动同步" : "有待同步的更改，请点击立即同步", "idle");
+        }
         this.updateSyncButton();
     }
     checkRun() {
@@ -458,6 +541,7 @@ export default class NoteCloudPlugin extends h.Plugin {
     async beginWebAuth(action = "login") {
         if (this.syncing)
             return void new h.Notice("请等当前同步完成后再操作账号");
+        this.autoSyncCoordinator?.cancel();
         const verifier = base64Url(crypto.getRandomValues(new Uint8Array(48))), state = base64Url(crypto.getRandomValues(new Uint8Array(24))), challenge = base64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
         {
             this.settings.pendingAuth = { verifier, state, createdAt: Date.now() };
@@ -513,6 +597,7 @@ export default class NoteCloudPlugin extends h.Plugin {
         }
         finally {
             this.authCompleting = false;
+            this.requestAutoSync();
         }
     }
     async refreshPluginToken() {
@@ -565,7 +650,7 @@ export default class NoteCloudPlugin extends h.Plugin {
                         window.clearTimeout(this.renewalResumeTimer);
                         this.renewalResumeTimer = window.setTimeout(() => {
                             if (!this.disposed)
-                                void this.sync(false);
+                                this.requestAutoSync();
                         }, 500);
                     }
                 }
@@ -588,6 +673,11 @@ export default class NoteCloudPlugin extends h.Plugin {
         void this.refreshAccount(true);
     }
     cancelSync() {
+        this.scopeSyncGeneration++;
+        this.scopeSyncRequest = undefined;
+        this.autoSyncCoordinator?.cancel();
+        this.startupSyncSuppressed = true;
+        window.clearTimeout(this.renewalResumeTimer);
         if (this.syncRun) {
             this.syncRun.cancelled = true;
             this.setStatus("正在停止，已完成的文件会保留", "syncing");
@@ -614,6 +704,7 @@ export default class NoteCloudPlugin extends h.Plugin {
         if (this.syncing)
             return void new h.Notice("请等当前同步完成后再退出账号");
         this.authEpoch = (this.authEpoch || 0) + 1;
+        this.autoSyncCoordinator?.cancel();
         this.settings.stateAccountId ||= this.settings.account?.id;
         this.settings.pendingAuth = void 0;
         {
@@ -654,7 +745,7 @@ export default class NoteCloudPlugin extends h.Plugin {
             }
             const t = objectValue(await this.authorizedRequest("/v1/auth/web-ticket", { method: "POST", body: "{}" }));
             const url = new URL(stringValue(t.url));
-            if (destination === "/feedback")
+            if (destination === "/feedback" || destination === "/billing")
                 url.pathname = destination;
             window.open(url.href, "_blank", "noopener,noreferrer");
         }
@@ -832,6 +923,11 @@ export default class NoteCloudPlugin extends h.Plugin {
         });
     }
     async sync(t: boolean) {
+        if (this.scopeSaveBlocked) {
+            if (t) new h.Notice("同步范围尚未成功保存，请重新调整或保存同步范围后再试");
+            return;
+        }
+        if (t) this.startupSyncSuppressed = false;
         if (this.authCompleting || (this.settings.pendingAuth && Date.now() - this.settings.pendingAuth.createdAt < 10 * 60 * 1000)) {
             if (t)
                 new h.Notice("请先完成网页上的账号操作；登录请求 10 分钟后自动失效");
@@ -868,6 +964,9 @@ export default class NoteCloudPlugin extends h.Plugin {
             return;
         }
         this.syncing = true;
+        const automatic = this.automaticSync();
+        automatic.begin();
+        const folderGeneration = this.folderChangeGeneration;
         const run: {
             cancelled: boolean;
             epoch: number;
@@ -875,7 +974,7 @@ export default class NoteCloudPlugin extends h.Plugin {
         this.digestCache ||= new Map();
         this.dirtyPaths ||= new Set();
         this.setStatus("正在同步…", "syncing");
-        let completed = 0, conflicts = 0, skipped = 0, scanned = 0;
+        let completed = 0, conflicts = 0, skipped = 0, scanned = 0, successfulPass = false;
         const errors: {
             path: string;
             message: string;
@@ -1019,11 +1118,15 @@ export default class NoteCloudPlugin extends h.Plugin {
                 }
             }, () => run.cancelled || this.disposed);
             this.checkRun();
-            this.settings.lastSyncAt = new Date().toISOString();
+            for (const path of this.dirtyPaths) {
+                if (!localPaths.has(path) && !remote.has(path) && !this.app.vault.getAbstractFileByPath(path)) this.dirtyPaths.delete(path);
+            }
             this.syncedThisSession = true;
-            this.pendingChanges = errors.length > 0 || skipped > 0 || this.dirtyPaths.size > 0;
-            const summary = "已同步 " + completed + " 项" + (conflicts ? "，处理 " + conflicts + " 个冲突" : "") + (skipped ? "，跳过 " + skipped + " 项" : "") + (errors.length ? "，" + errors.length + " 项失败：" + errors[0].message : "");
-            this.setStatus(summary, errors.length ? "error" : "success");
+            this.pendingChanges = errors.length > 0 || skipped > 0 || this.dirtyPaths.size > 0 || this.folderChangeGeneration !== folderGeneration;
+            if (!this.pendingChanges) this.settings.lastSyncAt = new Date().toISOString();
+            successfulPass = errors.length === 0;
+            const summary = "已同步 " + completed + " 项" + (conflicts ? "，处理 " + conflicts + " 个冲突" : "") + (skipped ? "，跳过 " + skipped + " 项" : "") + (errors.length ? "，" + errors.length + " 项失败：" + errors[0].message : "") + (this.pendingChanges ? "；仍有待同步，部分未完成" : "，全部完成");
+            this.setStatus(summary, errors.length ? "error" : this.pendingChanges ? "idle" : "success");
             if (t)
                 new h.Notice("NoteCloud " + summary);
         }
@@ -1044,6 +1147,8 @@ export default class NoteCloudPlugin extends h.Plugin {
             }
             this.syncing = false;
             this.syncRun = undefined;
+            automatic.finish(successfulPass && this.pendingChanges && !run.cancelled && !this.disposed);
+            this.resumeScopeSync();
             this.updateSyncButton();
         }
     }
@@ -1123,7 +1228,7 @@ class NoteCloudSettingsTab extends h.PluginSettingTab {
                     this.refreshDisplay();
                 }
             }));
-            q2.addButton((b) => b.setButtonText("\u8D2D\u4E70\u989D\u5EA6").setCta().onClick(() => window.open(`${s.serverUrl.replace(/\/$/, "")}/?purchase=1`, "_blank", "noopener,noreferrer")));
+            q2.addButton((b) => b.setButtonText("\u8D2D\u4E70\u989D\u5EA6").setCta().onClick(() => void this.plugin.openWebPortal("/billing")));
         }
         if (this.redeemExpanded) {
             let code = s.quotaCode || "";
@@ -1147,7 +1252,7 @@ class NoteCloudSettingsTab extends h.PluginSettingTab {
             }));
         }
         e.createEl("h3", { text: "\u540C\u6B65" });
-        new h.Setting(e).setName("\u81EA\u52A8\u540C\u6B65").addToggle((b) => b.setValue(s.autoSync !== false).onChange(async (v) => {
+        new h.Setting(e).setName("\u81EA\u52A8\u540C\u6B65").setDesc("编辑停止约 2 秒后同步；返回前台、网络恢复时校对。切到后台时仅尽力同步，强制关闭后无法继续上传。").addToggle((b) => b.setValue(s.autoSync !== false).onChange(async (v) => {
             {
                 s.autoSync = v;
                 await this.persist();
@@ -1157,7 +1262,7 @@ class NoteCloudSettingsTab extends h.PluginSettingTab {
         }));
         if (s.autoSync !== false) {
             let input: HTMLInputElement;
-            new h.Setting(e).setClass("notecloud-interval-input").setName("\u81EA\u52A8\u540C\u6B65\u95F4\u9694").addText((b) => {
+            new h.Setting(e).setClass("notecloud-interval-input").setName("定期云端校对间隔").addText((b) => {
                 {
                     input = b.inputEl;
                     input.type = "number";
@@ -1191,7 +1296,7 @@ class NoteCloudSettingsTab extends h.PluginSettingTab {
         let folders: h.TFolder[] = [];
         try { folders = selectableVaultFolders(this.app.vault).sort((b, v) => b.path.localeCompare(v.path)); }
         catch { new h.Setting(e).setName("文件夹列表暂不可用").setDesc("仓库目录尚未就绪或发生变化，请稍后重新打开设置。现有同步范围不会改变。"); }
-        renderFolderScope(e, folders, s, () => this.persist());
+        renderFolderScope(e, folders, s, () => this.plugin.persistSyncScope().catch(() => { new h.Notice("同步范围保存失败，请稍后重试；原范围同步已停止"); }));
         e.createEl("h3", { text: "\u6587\u4EF6\u5904\u7406" });
         let serverMaxMb = Math.max(1, Math.floor((s.serviceStatus?.maxUploadBytes || 200 * 1024 * 1024) / 1024 / 1024));
         const fileSizeDescription = () => `\u8D85\u8FC7 ${s.maxFileSizeMB} MB \u7684\u6587\u4EF6\u6682\u4E0D\u540C\u6B65\uFF1B\u670D\u52A1\u7AEF\u5F53\u524D\u4E0A\u9650 ${serverMaxMb} MB\u3002\u79FB\u52A8\u7AEF\u5EFA\u8BAE\u4FDD\u6301 50 MB \u4EE5\u4E0B`;
