@@ -72,7 +72,7 @@ export function openAnnouncement(plugin: CommunityPlugin, item: Announcement): v
     modal.contentEl.createEl("h2", { text: item.title });
     modal.contentEl.createEl("p", { cls: "notecloud-announcement-meta", text: item.createdAt ? new Date(item.createdAt).toLocaleString() : "" });
     const body = modal.contentEl.createDiv({ cls: "notecloud-announcement-markdown" });
-    body.append(announcementFragment(item.message, item.format || "text"));
+    body.append(announcementFragment(item.message, item.format || "text", plugin.settings.websiteUrl));
     if (item.linkUrl && /^https:\/\//i.test(item.linkUrl)) new Setting(modal.contentEl).addButton(button => button.setButtonText("打开详情链接").onClick(() => { window.open(item.linkUrl, "_blank", "noopener,noreferrer"); }));
     new Setting(modal.contentEl).addButton(button => button.setButtonText("关闭").onClick(() => modal.close()));
   };

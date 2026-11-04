@@ -1,3 +1,14 @@
+# NoteCloud Sync 0.5.1
+
+- 首次升级看到提示后，请完全退出并重新打开 Obsidian 一次；随后自动将旧官方地址切换到 `https://notecloud.cloud`，经阿里云入口访问原来的账号和笔记。仅重载插件不能替代这次交接。
+- 保留有效登录、同步比较记录、文件夹选择及自动同步设置；自定义服务器配置保持原样。过期或被撤销的登录仍需重新授权。
+- 迁移配置保存成功后才开始联网，避免保存失败时混用新旧入口；旧的未完成网页登录请重新发起。
+- 新旧 GitHub 下载仓库均保留；本版本不迁移或删除笔记，不改变现有冲突处理策略。
+
+After the first upgrade prompt, fully quit and reopen Obsidian once. The official endpoint then updates automatically to `https://notecloud.cloud`. Existing sync state and valid sessions are retained; custom servers are unchanged. Restart an unfinished browser sign-in from the updated plugin.
+
+---
+
 # NoteCloud Sync 0.5.0
 
 - Request an automatic sync shortly after editing pauses, with a maximum debounce while editing continues. Also check on foreground and network recovery; keep the existing periodic check as a fallback.

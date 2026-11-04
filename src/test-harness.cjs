@@ -25,7 +25,7 @@ function harness({ bundle = path.join(__dirname, "../main.js"), bundleSource, fi
     try { await delay(latency); return await network(url, options); } finally { metrics.active--; }
   }
   const obsidian = { Plugin: class {}, PluginSettingTab: class {}, TFile, TFolder, Platform: { isMobile: mobile },
-    Notice: class { constructor(value) { notices.push(value); } },
+    Notice: class { constructor(value) { notices.push(value); } hide() { this.hidden = true; } },
     requestUrl: async options => {
       const result = await request(options.url, { method: options.method, headers: { ...(options.contentType ? { "content-type": options.contentType } : {}), ...options.headers }, body: options.body });
       const arrayBuffer = await result.arrayBuffer(), text = new TextDecoder().decode(arrayBuffer);

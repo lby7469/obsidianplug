@@ -7,8 +7,17 @@ const parser = new Marked({ gfm: true, breaks: true, renderer: {
   image({ href, text }) { return `<a href="${escapeHtml(href)}">图片：${escapeHtml(text || "点击查看")}</a>`; },
 } });
 
+function announcementOrigin(value: string): string {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || url.pathname !== "/") throw Error("Invalid site origin");
+    return url.origin;
+  } catch { return "https://notecloud.cloud"; }
+}
+
 // Shared by the plugin, administrator preview and website. No vault embeds or remote image requests.
-export function announcementFragment(message: string, format: string = "markdown"): DocumentFragment {
+export function announcementFragment(message: string, format: string = "markdown", siteOrigin: string = "https://notecloud.cloud"): DocumentFragment {
+  const origin = announcementOrigin(siteOrigin);
   const source = String(message || "").slice(0, 20000);
   const html = format === "text" ? `<p>${escapeHtml(source).replace(/\n/g, "<br>")}</p>` : parser.parse(source) as string;
   const fragment = DOMPurify.sanitize(html, {
@@ -22,7 +31,7 @@ export function announcementFragment(message: string, format: string = "markdown
       if (!href || [...href].some(character => character.charCodeAt(0) <= 32 || character.charCodeAt(0) === 127)) throw Error("Invalid link");
       if (href.startsWith("#")) return;
       if (!/^(https:\/\/|mailto:|\/(?!\/))/i.test(href)) throw Error("Unsupported link");
-      const url = new URL(href, "https://notecloud.asia");
+      const url = new URL(href, origin);
       if (!["https:", "mailto:"].includes(url.protocol) || url.username || url.password) throw Error("Unsupported link");
       anchor.href = url.href;
       anchor.target = "_blank";
@@ -33,7 +42,7 @@ export function announcementFragment(message: string, format: string = "markdown
 }
 
 /** Preserve the shared website/admin API without reparsing HTML inside the plugin. */
-export function announcementHtml(message: string, format: string = "markdown"): string {
-  const fragment = announcementFragment(message, format);
+export function announcementHtml(message: string, format: string = "markdown", siteOrigin: string = "https://notecloud.cloud"): string {
+  const fragment = announcementFragment(message, format, siteOrigin);
   return Array.from(fragment.childNodes, node => node.nodeType === 1 ? (node as Element).outerHTML : escapeHtml(node.textContent || "")).join("");
 }

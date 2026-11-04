@@ -10,7 +10,7 @@ Sync Obsidian notes with a NoteCloud account while preserving folders. This is a
 - 选择整个仓库或指定文件夹；支持 Markdown、TXT、Canvas 及常见图片、音视频、PDF 和办公附件。
 - Markdown 冲突优先尝试三方合并，无法合并时按所选策略处理，默认保留两份。
 - 查看云端容量、兑换额度、读取公告、提交反馈和查看续费提醒。
-- 在 [NoteCloud 网页版](https://notecloud.asia) 阅读笔记、管理分享；链接分享和公开到首页是不同选项。
+- 在 [NoteCloud 网页版](https://notecloud.cloud) 阅读笔记、管理分享；链接分享和公开到首页是不同选项。
 
 同步不是独立备份，也不是只上传不下载的网盘操作。首次使用前请备份仓库，先用少量笔记验证同步结果。
 
@@ -23,6 +23,8 @@ Sync Obsidian notes with a NoteCloud account while preserving folders. This is a
 3. 回到第三方插件列表，启用 **NoteCloud Sync**。
 
 旧用户使用的 `lby7469/obsidianplug` 下载地址继续保留，无需更换。两个仓库是同一插件，不要在同一个 Obsidian 仓库中重复安装。
+
+升级到 0.5.1 后，使用旧官方地址的插件会提示完成入口升级。**看到提示后，完全退出并重新打开 Obsidian 一次**；仅禁用再启用插件不能代替重启。随后插件会自动改用 `https://notecloud.cloud`，通过阿里云入口连接原来的账号和笔记。这样可避免旧版本未结束的后台请求覆盖新配置。无需手动改网址，原有同步记录、文件夹选择及有效登录会保留；登录已过期或被撤销时仍需重新授权。新安装和自定义服务器配置不需要这一步，自定义地址不自动迁移。
 
 也可以在 Obsidian 第三方插件市场搜索 **NoteCloud Sync**；若搜索不到，请使用 BRAT。手动安装方式见下方英文 Installation。
 
@@ -78,6 +80,8 @@ Sync Obsidian notes with a NoteCloud account while preserving folders. This is a
 
 Install **BRAT** from Obsidian's Community plugins, add `Yinds0270/NoteCloud`, then enable **NoteCloud Sync**. Existing users may keep `lby7469/obsidianplug`; do not install both copies in one vault.
 
+Version 0.5.1 automatically moves the old official endpoints to `https://notecloud.cloud`. On the first upgrade, **fully quit and reopen Obsidian after the plugin asks you to restart**; toggling the plugin is not enough. This prevents unfinished requests from the old version overwriting new settings. Your account, notes, sync baseline, folder choices and valid session are retained. Expired or revoked sessions still require sign-in. Fresh installs and custom server configurations do not need this handover; custom addresses are left unchanged.
+
 You can also search for **NoteCloud Sync** in Community plugins. For manual installation, download `main.js`, `manifest.json` and `styles.css` from a [release](https://github.com/Yinds0270/NoteCloud/releases), close Obsidian, and place them in `<vault>/.obsidian/plugins/notecloud-sync/`. Use your actual configuration directory if customized. When upgrading, replace only these files; keep your existing `data.json` private and unchanged.
 
 ## Basic usage
@@ -90,7 +94,7 @@ With automatic sync enabled, editing pauses trigger a sync after about two secon
 
 ## Account, payment and privacy
 
-云端功能需要 NoteCloud 账号和网络连接。新账号有有限免费容量，扩容可能收费；具体容量和有效期以账号页面为准。插件通过 `https://api.notecloud.asia` 同步所选文件及必要元数据，通过 `https://notecloud.asia` 完成网页账号和分享操作。
+云端功能需要 NoteCloud 账号和网络连接。新账号有有限免费容量，扩容可能收费；具体容量和有效期以账号页面为准。插件通过 `https://notecloud.cloud` 同步所选文件及必要元数据，并完成网页账号和分享操作。新入口由阿里云服务器转发到 NoteCloud 的原数据服务。
 
 HTTPS 保护传输，但**不是端到端加密**；有服务器或备份访问权限的运维人员仍可能读取上传内容。请勿公开插件配置或设备令牌。完整网络、数据及隐私边界见 [PRIVACY.md](PRIVACY.md)。
 

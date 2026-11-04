@@ -1,6 +1,6 @@
 # NoteCloud Sync 用户使用指南
 
-> 适用于 NoteCloud Sync 0.5.0。网站：[notecloud.asia](https://notecloud.asia)。原插件仓库 `lby7469/obsidianplug` 继续保留，旧用户无需修改地址。首次连接仓库前请先阅读 [数据处理和隐私说明](PRIVACY.md)，再完成安装与首次同步。网页套餐与收款功能需管理员在服务端启用。
+> 适用于 NoteCloud Sync 0.5.1。网站：[notecloud.cloud](https://notecloud.cloud)。原插件仓库 `lby7469/obsidianplug` 继续保留，旧用户无需修改下载地址。首次连接仓库前请先阅读 [数据处理和隐私说明](PRIVACY.md)，再完成安装与首次同步。网页套餐与收款功能需管理员在服务端启用。
 
 ## 一、安装 Obsidian 与 BRAT
 
@@ -21,6 +21,8 @@
 安装按钮名称可能随语言和 BRAT 版本不同而变化。可参考 [BRAT 官方说明](https://github.com/TfTHacker/obsidian42-brat) 和 [Obsidian 第三方插件说明](https://help.obsidian.md/Extending+Obsidian/Community+plugins)。第三方插件可以访问本地仓库，请只安装信任的来源。
 
 ## 二、登录、注册与忘记密码
+
+**已有用户升级：** 更新到 0.5.1 后，新插件首次加载会提示重启。请在提示后完全退出并重新打开 Obsidian 一次，手机上需结束 Obsidian 后台进程再打开；仅切换到后台或禁用再启用插件不能代替这一步。旧官方地址随后自动切换到 `https://notecloud.cloud`。不需要删除配置、重新上传整个仓库或手动改网址；原账号、文件夹选择和同步比较记录会保留。有效登录可继续使用，过期或被撤销的登录仍需重新授权。正在进行的旧网页登录请从新版插件重新发起。新安装及自定义服务器配置不需要这次交接，自定义地址不自动迁移。
 
 1. 打开“设置 → NoteCloud Sync”。
 2. 在“账户”区点击“登录”“注册”或“忘记密码”。

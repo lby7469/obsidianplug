@@ -26,12 +26,12 @@ vm.runInContext(compiled.outputFiles[0].text, context);
 const { announcementFragment, announcementHtml } = moduleFixture.exports;
 let checks = 0;
 const verify = (condition, message) => { assert.ok(condition, message); checks++; };
-const render = (source, format = "markdown") => {
-  const fragment = announcementFragment(source, format);
+const render = (source, format = "markdown", siteOrigin) => {
+  const fragment = announcementFragment(source, format, siteOrigin);
   verify(fragment.nodeType === 11, "Renderer returns a DOM fragment");
   const body = dom.window.document.createElement("div");
   body.append(fragment);
-  assert.equal(announcementHtml(source, format), body.innerHTML, "Legacy HTML API matches direct DOM rendering");
+  assert.equal(announcementHtml(source, format, siteOrigin), body.innerHTML, "Legacy HTML API matches direct DOM rendering");
   checks++;
   return body;
 };
@@ -73,9 +73,21 @@ try {
   const links = render('[HTTPS](https://example.org/path) [mail](mailto:hello@example.org) [relative](/help) [section](#part) ![Picture](https://example.org/image.png)');
   verify(links.querySelectorAll("a[href]").length === 5, "Safe links and image-as-link preserved");
   verify(links.querySelectorAll("img").length === 0, "Markdown pictures never load automatically");
-  verify(links.querySelector('a[href="https://notecloud.asia/help"]'), "Relative site links normalized");
+  verify(links.querySelector('a[href="https://notecloud.cloud/help"]'), "Relative links use the new official site even in an old-domain document");
   for (const anchor of links.querySelectorAll('a[target="_blank"]')) {
     verify(anchor.rel === "noopener noreferrer", "External links cannot access opener");
+  }
+  for (const origin of ['https://custom.example', 'https://CUSTOM.EXAMPLE/', 'https://custom.example:9443', 'https://notecloud.asia']) {
+    const custom = render('[relative](/help) [absolute](https://example.org/read) [bad](javascript:alert%281%29) ![image](https://example.org/img.png)', 'markdown', origin);
+    verify(custom.querySelector(`a[href="${new URL(origin).origin}/help"]`), 'Custom and explicit legacy HTTPS sites retain their own relative-link origin');
+    verify(custom.querySelector('a[href="https://example.org/read"]'), 'Explicit safe links retain their destinations');
+    verify(!custom.querySelector('a[href^="javascript:"],img'), 'A custom site does not weaken link or image sanitation');
+    verify(custom.querySelector('a[href$="/help"]').rel === 'noopener noreferrer', 'Relative links keep opener isolation');
+  }
+  for (const origin of ['', 'invalid', 'http://custom.example', 'javascript:alert(1)', 'https://user:secret@custom.example', 'https://custom.example/path', 'https://custom.example/?x=1', 'https://custom.example/#part']) {
+    const invalid = render('[relative](/help) <a href="//evil.invalid">bad</a>', 'markdown', origin);
+    verify(invalid.querySelector('a[href="https://notecloud.cloud/help"]'), 'Invalid configured origins safely fall back to the official HTTPS site');
+    verify(invalid.querySelectorAll('a[href]').length === 1, 'Unsafe links stay non-navigable with invalid configuration');
   }
   const plain = render('<script>private</script>\n**not markdown** & <literal>', "text");
   verify(plain.textContent === '<script>private</script>**not markdown** & <literal>', "Legacy text stays literal");

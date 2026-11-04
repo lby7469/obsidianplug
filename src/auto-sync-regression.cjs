@@ -215,7 +215,7 @@ function client(files = [], { mobile = false } = {}) {
     const test = client(); let opened;
     // The same production method is exercised with a ticket URL; only approved
     // portal routes may replace its pathname, and query credentials remain intact.
-    test.plugin.authorizedRequest = async () => ({ url: 'https://notecloud.asia/?ticket=fixture-ticket' });
+    test.plugin.authorizedRequest = async () => ({ url: 'https://notecloud.cloud/?ticket=fixture-ticket' });
     const portal = harness({ bundleSource: sourceBundle, runtime: { window: { open(url) { opened = url; } } } }).instance;
     portal.authorizedRequest = test.plugin.authorizedRequest;
     await portal.openWebPortal('/billing'); equal(new URL(opened).pathname, '/billing'); equal(new URL(opened).searchParams.get('ticket'), 'fixture-ticket');

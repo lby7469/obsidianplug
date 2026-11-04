@@ -4571,7 +4571,17 @@ var parser2 = new Marked({ gfm: true, breaks: true, renderer: {
     return `<a href="${escapeHtml(href)}">\u56FE\u7247\uFF1A${escapeHtml(text2 || "\u70B9\u51FB\u67E5\u770B")}</a>`;
   }
 } });
-function announcementFragment(message, format = "markdown") {
+function announcementOrigin(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || url.pathname !== "/") throw Error("Invalid site origin");
+    return url.origin;
+  } catch (e) {
+    return "https://notecloud.cloud";
+  }
+}
+function announcementFragment(message, format = "markdown", siteOrigin = "https://notecloud.cloud") {
+  const origin = announcementOrigin(siteOrigin);
   const source = String(message || "").slice(0, 2e4);
   const html3 = format === "text" ? `<p>${escapeHtml(source).replace(/\n/g, "<br>")}</p>` : parser2.parse(source);
   const fragment = purify_default.sanitize(html3, {
@@ -4585,7 +4595,7 @@ function announcementFragment(message, format = "markdown") {
       if (!href || [...href].some((character) => character.charCodeAt(0) <= 32 || character.charCodeAt(0) === 127)) throw Error("Invalid link");
       if (href.startsWith("#")) return;
       if (!/^(https:\/\/|mailto:|\/(?!\/))/i.test(href)) throw Error("Unsupported link");
-      const url = new URL(href, "https://notecloud.asia");
+      const url = new URL(href, origin);
       if (!["https:", "mailto:"].includes(url.protocol) || url.username || url.password) throw Error("Unsupported link");
       anchor.href = url.href;
       anchor.target = "_blank";
@@ -4660,7 +4670,7 @@ function openAnnouncement(plugin, item) {
     modal.contentEl.createEl("h2", { text: item.title });
     modal.contentEl.createEl("p", { cls: "notecloud-announcement-meta", text: item.createdAt ? new Date(item.createdAt).toLocaleString() : "" });
     const body = modal.contentEl.createDiv({ cls: "notecloud-announcement-markdown" });
-    body.append(announcementFragment(item.message, item.format || "text"));
+    body.append(announcementFragment(item.message, item.format || "text", plugin.settings.websiteUrl));
     if (item.linkUrl && /^https:\/\//i.test(item.linkUrl)) new import_obsidian.Setting(modal.contentEl).addButton((button) => button.setButtonText("\u6253\u5F00\u8BE6\u60C5\u94FE\u63A5").onClick(() => {
       window.open(item.linkUrl, "_blank", "noopener,noreferrer");
     }));
@@ -5478,6 +5488,117 @@ function readSettings(value, defaults) {
   };
 }
 
+// src/official-entry.ts
+var OFFICIAL_ENTRY_URL = "https://notecloud.cloud";
+var LEGACY_API_URL = "https://api.notecloud.asia";
+var LEGACY_WEBSITE_URL = "https://notecloud.asia";
+function officialOrigin(value) {
+  if (!/^https:\/\/(?:api\.notecloud\.asia|notecloud\.asia|notecloud\.cloud)\/?$/i.test(value)) return;
+  return new URL(value).origin;
+}
+function prepareOfficialEntry(raw, defaults) {
+  const saved = raw !== null && typeof raw === "object" && !Array.isArray(raw) && Object.keys(raw).length > 0;
+  const previousDefaults = saved ? { ...defaults, serverUrl: LEGACY_API_URL, websiteUrl: LEGACY_WEBSITE_URL } : defaults;
+  const settings2 = readSettings(raw, previousDefaults);
+  const server = officialOrigin(settings2.serverUrl), website = officialOrigin(settings2.websiteUrl);
+  const migrated = (server === LEGACY_API_URL || server === LEGACY_WEBSITE_URL) && website === LEGACY_WEBSITE_URL;
+  if (!migrated) return { settings: settings2, migrated: false };
+  return {
+    migrated: true,
+    settings: {
+      ...settings2,
+      serverUrl: OFFICIAL_ENTRY_URL,
+      websiteUrl: OFFICIAL_ENTRY_URL,
+      // An incomplete browser login belongs to the old entry. Existing
+      // sessions and all sync comparison state remain valid and intact.
+      pendingAuth: void 0,
+      serviceStatus: void 0,
+      lastServiceCheckAt: 0
+    }
+  };
+}
+var INSTALLATION_STORAGE_KEY = "notecloud-sync:official-entry-installation:v1";
+var SESSION_KEY = Symbol.for("notecloud-sync.official-entry-session.v1");
+var RANDOM_ID = /^[a-f0-9]{48}$/;
+function randomId() {
+  return [...crypto.getRandomValues(new Uint8Array(24))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+function realmSessionId() {
+  if (!Object.prototype.hasOwnProperty.call(window, SESSION_KEY))
+    Object.defineProperty(window, SESSION_KEY, { value: randomId(), enumerable: false, configurable: false, writable: false });
+  const id = Reflect.get(window, SESSION_KEY);
+  if (typeof id !== "string" || !RANDOM_ID.test(id)) throw new Error("Invalid migration session marker");
+  return id;
+}
+function installationId(app) {
+  const key = `${INSTALLATION_STORAGE_KEY}:${encodeURIComponent(app.vault.getName())}:${encodeURIComponent(app.vault.configDir)}`;
+  const read = () => window.localStorage.getItem(key);
+  const write = (id) => window.localStorage.setItem(key, id);
+  let stored = read();
+  if (stored === void 0 || stored === null) {
+    const id = randomId();
+    write(id);
+    stored = read();
+    if (stored !== id) throw new Error("Migration device marker was not saved");
+  }
+  if (typeof stored !== "string" || !RANDOM_ID.test(stored)) throw new Error("Invalid migration device marker");
+  return stored;
+}
+function ownMarkerPath(app, manifest) {
+  const config = app.vault.configDir;
+  if (manifest.id !== "notecloud-sync" || !config || /[\\:]/.test(config) || [...config].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127) || config.split("/").some((part) => !part || part === "." || part === ".."))
+    throw new Error("Invalid plugin configuration directory");
+  const directory = `${config}/plugins/notecloud-sync`;
+  if (manifest.dir !== void 0 && manifest.dir !== directory) throw new Error("Unexpected plugin installation directory");
+  return { directory, file: `${directory}/entry-migration-pending-v1.json` };
+}
+function readMarkerJson(value) {
+  if (value.length > 1024) throw new Error("Migration marker is too large");
+  const parsed = JSON.parse(value);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Invalid migration marker");
+  const marker = parsed;
+  if (Object.keys(marker).length !== 5 || marker.schema !== 1 || marker.from !== LEGACY_API_URL || marker.to !== OFFICIAL_ENTRY_URL || typeof marker.installationId !== "string" || !RANDOM_ID.test(marker.installationId) || typeof marker.sessionId !== "string" || !RANDOM_ID.test(marker.sessionId))
+    throw new Error("Invalid migration marker");
+  return marker;
+}
+async function readMarker(app, file) {
+  const stat = await app.vault.adapter.stat(file);
+  if (!stat) return;
+  if (stat.type !== "file" || !Number.isSafeInteger(stat.size) || stat.size < 1 || stat.size > 1024) throw new Error("Invalid migration marker file");
+  return readMarkerJson(await app.vault.adapter.read(file));
+}
+function sameMarker(left, right) {
+  return left.installationId === right.installationId && left.sessionId === right.sessionId;
+}
+async function ensureEntryMigrationRestart(app, manifest) {
+  var _a2;
+  const path = ownMarkerPath(app, manifest);
+  if (((_a2 = await app.vault.adapter.stat(path.directory)) == null ? void 0 : _a2.type) !== "folder") throw new Error("Plugin directory unavailable");
+  const current = { schema: 1, from: LEGACY_API_URL, to: OFFICIAL_ENTRY_URL, installationId: installationId(app), sessionId: realmSessionId() };
+  const previous = await readMarker(app, path.file);
+  if (previous && previous.installationId === current.installationId && previous.sessionId !== current.sessionId)
+    return { ready: true, markerPath: path.file, marker: previous };
+  if (!previous || !sameMarker(previous, current)) {
+    await app.vault.adapter.write(path.file, JSON.stringify(current) + "\n");
+    const saved = await readMarker(app, path.file);
+    if (!saved || !sameMarker(saved, current)) throw new Error("Migration restart marker was not saved");
+  }
+  return { ready: false, markerPath: path.file, marker: current };
+}
+async function finishEntryMigration(app, manifest, restart) {
+  const path = ownMarkerPath(app, manifest);
+  if (!restart.ready || restart.markerPath !== path.file) throw new Error("Unexpected migration cleanup");
+  const current = await readMarker(app, path.file);
+  if (current && sameMarker(current, restart.marker)) await app.vault.adapter.remove(path.file);
+}
+function checkedPortalUrl(value, websiteUrl) {
+  const website = new URL(websiteUrl), target = new URL(value);
+  if (!["https:", "http:"].includes(website.protocol) || website.username || website.password || target.protocol !== website.protocol || target.username || target.password || target.origin !== website.origin) {
+    throw new Error("\u7F51\u9875\u5730\u5740\u4E0E\u5F53\u524D\u670D\u52A1\u5165\u53E3\u4E0D\u4E00\u81F4\uFF0C\u8BF7\u91CD\u8BD5");
+  }
+  return target;
+}
+
 // src/main.ts
 function settingsBridge(app) {
   const value = app;
@@ -5509,7 +5630,7 @@ function installedPlugin(app, id) {
     return false;
   return id in manager.plugins;
 }
-var DEFAULT_SETTINGS = { serverUrl: "https://api.notecloud.asia", websiteUrl: "https://notecloud.asia", phone: "", password: "", quotaCode: "", token: "", refreshToken: "", tokenExpiresAt: 0, pendingAuth: void 0, state: {}, syncAllFolders: true, selectedFolders: [], autoSync: true, syncIntervalMinutes: 5, maxFileSizeMB: h.Platform.isMobile ? 50 : 200, conflictStrategy: "keep-both", serviceNotices: true, lastServiceCheckAt: 0, seenAnnouncementIds: [], notifiedUpdateVersion: "", serviceStatus: void 0 };
+var DEFAULT_SETTINGS = { serverUrl: OFFICIAL_ENTRY_URL, websiteUrl: OFFICIAL_ENTRY_URL, phone: "", password: "", quotaCode: "", token: "", refreshToken: "", tokenExpiresAt: 0, pendingAuth: void 0, state: {}, syncAllFolders: true, selectedFolders: [], autoSync: true, syncIntervalMinutes: 5, maxFileSizeMB: h.Platform.isMobile ? 50 : 200, conflictStrategy: "keep-both", serviceNotices: true, lastServiceCheckAt: 0, seenAnnouncementIds: [], notifiedUpdateVersion: "", serviceStatus: void 0 };
 var SUPPORTED_EXTENSIONS = /* @__PURE__ */ new Set(["md", "markdown", "txt", "canvas", "pdf", "png", "jpg", "jpeg", "gif", "webp", "svg", "mp3", "m4a", "wav", "mp4", "webm", "mov", "docx", "xlsx", "pptx"]);
 async function digestBytes(c) {
   let t = await crypto.subtle.digest("SHA-256", c);
@@ -5557,6 +5678,10 @@ var NoteCloudPlugin = class extends h.Plugin {
     __publicField(this, "scopeSaveBlocked", false);
     __publicField(this, "scopeSyncRequest");
     __publicField(this, "disposed", false);
+    __publicField(this, "entryInitializationBlocked", false);
+    __publicField(this, "entryRestartRequired", false);
+    __publicField(this, "entryStartupSaving", false);
+    __publicField(this, "entryRestartNotice");
     __publicField(this, "authEpoch", 0);
     __publicField(this, "authCompleting", false);
     __publicField(this, "syncedThisSession", false);
@@ -5575,12 +5700,48 @@ var NoteCloudPlugin = class extends h.Plugin {
     __publicField(this, "lastSyncReport");
   }
   async onload() {
-    const raw = await this.loadData();
-    const t = readSettings(raw, DEFAULT_SETTINGS);
-    {
-      this.settings = { ...DEFAULT_SETTINGS, ...t || {}, state: (t == null ? void 0 : t.state) || {}, selectedFolders: (t == null ? void 0 : t.selectedFolders) || [], seenAnnouncementIds: (t == null ? void 0 : t.seenAnnouncementIds) || [] };
+    this.entryInitializationBlocked = true;
+    const epoch = this.authEpoch || 0;
+    let migrated = false;
+    try {
+      const raw = await this.loadData();
+      this.assertSession(epoch);
+      const prepared = prepareOfficialEntry(raw, DEFAULT_SETTINGS);
+      let restart;
+      if (prepared.migrated) {
+        restart = await ensureEntryMigrationRestart(this.app, this.manifest);
+        this.assertSession(epoch);
+        if (!restart.ready) {
+          this.entryRestartRequired = true;
+          this.addSettingTab(new EntryRestartSettingsTab(this.app, this));
+          this.entryRestartNotice = new h.Notice("NoteCloud \u5DF2\u66F4\u65B0\u3002\u9996\u6B21\u5207\u6362\u5165\u53E3\u8BF7\u5B8C\u5168\u9000\u51FA\u6240\u6709 Obsidian \u7A97\u53E3\uFF0C\u518D\u91CD\u65B0\u6253\u5F00\uFF1B\u624B\u673A\u4E0A\u8BF7\u7ED3\u675F\u5E94\u7528\u540E\u91CD\u5F00\u3002\u65E0\u9700\u4FEE\u6539\u5730\u5740\uFF0C\u7B14\u8BB0\u4E0E\u767B\u5F55\u72B6\u6001\u4F1A\u4FDD\u7559\u3002", 0);
+          return;
+        }
+      }
+      this.settings = prepared.settings;
       this.settings.password = "";
-      await this.saveSettings();
+      this.entryStartupSaving = true;
+      try {
+        await this.saveSettings();
+      } finally {
+        this.entryStartupSaving = false;
+      }
+      this.assertSession(epoch);
+      if (restart) {
+        try {
+          await finishEntryMigration(this.app, this.manifest, restart);
+        } catch (e) {
+        }
+        this.assertSession(epoch);
+      }
+      migrated = prepared.migrated;
+      this.entryInitializationBlocked = false;
+    } catch (e) {
+      new h.Notice("NoteCloud \u914D\u7F6E\u672A\u80FD\u5B89\u5168\u52A0\u8F7D\u6216\u4FDD\u5B58\uFF0C\u5DF2\u6682\u505C\u8FDE\u63A5\u3002\u8BF7\u68C0\u67E5\u5B58\u50A8\u6743\u9650\u540E\u91CD\u65B0\u542F\u7528\u63D2\u4EF6\u3002", 12e3);
+      throw new Error("NoteCloud settings initialization failed; network access remains paused");
+    }
+    if (migrated) new h.Notice("NoteCloud \u5DF2\u5207\u6362\u5230\u65B0\u670D\u52A1\u5165\u53E3\uFF0C\u767B\u5F55\u72B6\u6001\u4E0E\u540C\u6B65\u8BB0\u5F55\u5DF2\u4FDD\u7559\u3002", 8e3);
+    {
       this.authPolicy = { passwordHint: "\u5BC6\u7801\u81F3\u5C11 8 \u4F4D\uFF0C\u4E14\u5FC5\u987B\u540C\u65F6\u5305\u542B\u5B57\u6BCD\u548C\u6570\u5B57\u3002", emailCodeLength: 6, emailCodeExpiresMinutes: 10 };
       await this.loadAuthPolicy();
       this.syncedThisSession = false;
@@ -5621,22 +5782,23 @@ var NoteCloudPlugin = class extends h.Plugin {
     this.addCommand({ id: "send-feedback", name: "\u610F\u89C1\u53CD\u9988", callback: () => openFeedback(this) });
   }
   onunload() {
-    var _a2, _b, _c, _d;
+    var _a2, _b, _c, _d, _e;
     this.disposed = true;
+    (_a2 = this.entryRestartNotice) == null ? void 0 : _a2.hide();
     this.authEpoch = (this.authEpoch || 0) + 1;
     this.cancelSync();
-    (_a2 = this.autoSyncCoordinator) == null ? void 0 : _a2.dispose();
+    (_b = this.autoSyncCoordinator) == null ? void 0 : _b.dispose();
     window.clearTimeout(this.startupSyncTimer);
     window.clearTimeout(this.startupStatusTimer);
     window.clearTimeout(this.renewalResumeTimer);
-    (_b = this.announcementButton) == null ? void 0 : _b.remove();
-    (_c = this.renewalButton) == null ? void 0 : _c.remove();
+    (_c = this.announcementButton) == null ? void 0 : _c.remove();
+    (_d = this.renewalButton) == null ? void 0 : _d.remove();
     this.renewalTop = void 0;
     {
       if (this.autoSyncTimer) {
         window.clearInterval(this.autoSyncTimer);
       }
-      (_d = this.floatingButton) == null ? void 0 : _d.remove();
+      (_e = this.floatingButton) == null ? void 0 : _e.remove();
     }
   }
   configureAutoSync() {
@@ -5789,11 +5951,13 @@ var NoteCloudPlugin = class extends h.Plugin {
   }
   async checkServiceStatus(t = false) {
     var _a2;
+    const epoch = this.authEpoch || 0;
     if (!t && Date.now() - Math.max(this.settings.lastServiceCheckAt || 0, this.lastServiceAttemptAt || 0) < 5 * 60 * 1e3)
       return this.settings.serviceStatus;
     this.lastServiceAttemptAt = Date.now();
     try {
       let e = readStatus(await this.request(`/v1/plugin/status?version=${encodeURIComponent(this.manifest.version)}&platform=${h.Platform.isMobile ? "mobile" : "desktop"}`)), s = compareVersions(this.manifest.version, e.latestVersion) < 0;
+      this.assertSession(epoch);
       {
         this.settings.serviceStatus = e;
         this.settings.lastServiceCheckAt = Date.now();
@@ -5816,9 +5980,17 @@ var NoteCloudPlugin = class extends h.Plugin {
     }
   }
   async saveSettings() {
+    const assertWritable = () => {
+      if (this.disposed || this.entryRestartRequired || this.entryInitializationBlocked && !this.entryStartupSaving)
+        throw new ServiceError("\u9996\u6B21\u5347\u7EA7\u8BF7\u5B8C\u5168\u9000\u51FA\u5E76\u91CD\u65B0\u6253\u5F00 Obsidian\uFF0C\u5F53\u524D\u8BBE\u7F6E\u5199\u5165\u5DF2\u6682\u505C", 409);
+    };
+    assertWritable();
     const snapshot = JSON.parse(JSON.stringify(this.settings));
     this.saveFlight = (this.saveFlight || Promise.resolve()).catch(() => {
-    }).then(() => this.saveData(snapshot));
+    }).then(() => {
+      assertWritable();
+      return this.saveData(snapshot);
+    });
     await this.saveFlight;
   }
   openSettings() {
@@ -5902,6 +6074,7 @@ var NoteCloudPlugin = class extends h.Plugin {
     }
   }
   async request(route, options2 = {}) {
+    this.assertEntryReady();
     const headers = new Headers(options2.headers);
     if (options2.body !== void 0)
       headers.set("Content-Type", "application/json");
@@ -5926,6 +6099,10 @@ var NoteCloudPlugin = class extends h.Plugin {
     if (this.disposed || (this.authEpoch || 0) !== epoch)
       throw new ServiceError("\u8D26\u53F7\u5DF2\u53D8\u5316\uFF0C\u64CD\u4F5C\u5DF2\u505C\u6B62", 409);
   }
+  assertEntryReady() {
+    if (this.entryInitializationBlocked || this.disposed)
+      throw new ServiceError("\u63D2\u4EF6\u914D\u7F6E\u5C1A\u672A\u4FDD\u5B58\uFF0C\u8FDE\u63A5\u5DF2\u6682\u505C\uFF0C\u8BF7\u91CD\u65B0\u542F\u7528\u63D2\u4EF6", 409);
+  }
   async authorizedRequest(route, options2 = {}) {
     const epoch = this.authEpoch || 0;
     if (this.settings.refreshToken && this.settings.tokenExpiresAt && this.settings.tokenExpiresAt < Date.now() + 3e4)
@@ -5948,6 +6125,7 @@ var NoteCloudPlugin = class extends h.Plugin {
     }
   }
   async binaryRequest(route, method = "GET", bytes) {
+    this.assertEntryReady();
     const headers = {};
     if (this.settings.token)
       headers.Authorization = "Bearer " + this.settings.token;
@@ -5993,14 +6171,22 @@ var NoteCloudPlugin = class extends h.Plugin {
   }
   async beginWebAuth(action = "login") {
     var _a2;
+    this.assertEntryReady();
     if (this.syncing)
       return void new h.Notice("\u8BF7\u7B49\u5F53\u524D\u540C\u6B65\u5B8C\u6210\u540E\u518D\u64CD\u4F5C\u8D26\u53F7");
+    const epoch = this.authEpoch || 0, websiteUrl = this.settings.websiteUrl;
     (_a2 = this.autoSyncCoordinator) == null ? void 0 : _a2.cancel();
     const verifier = base64Url(crypto.getRandomValues(new Uint8Array(48))), state = base64Url(crypto.getRandomValues(new Uint8Array(24))), challenge = base64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
+    this.assertSession(epoch);
+    this.assertEntryReady();
+    if (websiteUrl !== this.settings.websiteUrl) throw new ServiceError("\u670D\u52A1\u5165\u53E3\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u767B\u5F55\u9875", 409);
     {
       this.settings.pendingAuth = { verifier, state, createdAt: Date.now() };
       await this.saveSettings();
     }
+    this.assertSession(epoch);
+    this.assertEntryReady();
+    if (websiteUrl !== this.settings.websiteUrl) throw new ServiceError("\u670D\u52A1\u5165\u53E3\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u767B\u5F55\u9875", 409);
     const deviceName = `${h.Platform.isMobile ? "Obsidian Mobile" : "Obsidian Desktop"} \xB7 ${this.app.vault.getName()}`;
     const url = `${this.settings.websiteUrl.replace(/\/$/, "")}/auth/plugin?state=${encodeURIComponent(state)}&code_challenge=${encodeURIComponent(challenge)}&device_name=${encodeURIComponent(deviceName)}&action=${encodeURIComponent(action)}`;
     {
@@ -6205,11 +6391,17 @@ var NoteCloudPlugin = class extends h.Plugin {
   }
   async openWebPortal(destination) {
     try {
+      this.assertEntryReady();
+      const epoch = this.authEpoch || 0, serverUrl = this.settings.serverUrl, websiteUrl = this.settings.websiteUrl;
       if (!this.settings.token) {
         await this.login();
       }
       const t = objectValue(await this.authorizedRequest("/v1/auth/web-ticket", { method: "POST", body: "{}" }));
-      const url = new URL(stringValue(t.url));
+      this.assertSession(epoch);
+      this.assertEntryReady();
+      if (serverUrl !== this.settings.serverUrl || websiteUrl !== this.settings.websiteUrl)
+        throw new ServiceError("\u670D\u52A1\u5165\u53E3\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u7F51\u9875", 409);
+      const url = checkedPortalUrl(stringValue(t.url), websiteUrl);
       if (destination === "/feedback" || destination === "/billing")
         url.pathname = destination;
       window.open(url.href, "_blank", "noopener,noreferrer");
@@ -6591,6 +6783,14 @@ var NoteCloudPlugin = class extends h.Plugin {
       this.resumeScopeSync();
       this.updateSyncButton();
     }
+  }
+};
+var EntryRestartSettingsTab = class extends h.PluginSettingTab {
+  display() {
+    this.containerEl.empty();
+    this.containerEl.createEl("h2", { text: "\u91CD\u542F\u540E\u5B8C\u6210\u5165\u53E3\u5207\u6362" });
+    this.containerEl.createEl("p", { text: "\u63D2\u4EF6\u5DF2\u66F4\u65B0\u3002\u8BF7\u5B8C\u5168\u9000\u51FA\u6240\u6709 Obsidian \u7A97\u53E3\u540E\u91CD\u65B0\u6253\u5F00\uFF1B\u624B\u673A\u4E0A\u8BF7\u7ED3\u675F\u5E94\u7528\u540E\u91CD\u5F00\u3002" });
+    this.containerEl.createEl("p", { text: "\u4E0D\u9700\u8981\u4FEE\u6539\u670D\u52A1\u5668\u5730\u5740\u3002\u91CD\u65B0\u6253\u5F00\u540E\u4F1A\u81EA\u52A8\u5207\u6362\u5165\u53E3\uFF0C\u5E76\u4FDD\u7559\u767B\u5F55\u72B6\u6001\u3001\u540C\u6B65\u8303\u56F4\u548C\u7B14\u8BB0\u8BB0\u5F55\u3002\u5B8C\u6210\u524D\u6682\u4E0D\u53D1\u8D77\u540C\u6B65\u3002" });
   }
 };
 var NoteCloudSettingsTab = class extends h.PluginSettingTab {

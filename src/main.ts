@@ -6,7 +6,9 @@ import { mergeLines } from "./merge";
 import { scopedVaultFiles, selectableVaultFolders } from "./vault-scope";
 import { renderFolderScope } from "./folder-scope-ui";
 import { AutoSyncCoordinator } from "./auto-sync-coordinator";
-import { errorMessage, errorStatus, objectValue, readAccount, readManifest, readPolicy, readSettings, readStatus, readTokens, readUpload, retryAfter, splitLinesAfterLF, stringValue } from "./plugin-types";
+import { checkedPortalUrl, ensureEntryMigrationRestart, finishEntryMigration, OFFICIAL_ENTRY_URL, prepareOfficialEntry } from "./official-entry";
+import type { EntryMigrationRestart } from "./official-entry";
+import { errorMessage, errorStatus, objectValue, readAccount, readManifest, readPolicy, readStatus, readTokens, readUpload, retryAfter, splitLinesAfterLF, stringValue } from "./plugin-types";
 import type { Account, AuthPolicy, PluginSettings, RemoteFile, RequestOptions } from "./plugin-types";
 interface FileStamp {
     mtime: number;
@@ -49,7 +51,7 @@ function installedPlugin(app: h.App, id: string): boolean {
         return false;
     return id in manager.plugins;
 }
-const DEFAULT_SETTINGS: PluginSettings = { serverUrl: "https://api.notecloud.asia", websiteUrl: "https://notecloud.asia", phone: "", password: "", quotaCode: "", token: "", refreshToken: "", tokenExpiresAt: 0, pendingAuth: void 0, state: {}, syncAllFolders: true, selectedFolders: [], autoSync: true, syncIntervalMinutes: 5, maxFileSizeMB: h.Platform.isMobile ? 50 : 200, conflictStrategy: "keep-both", serviceNotices: true, lastServiceCheckAt: 0, seenAnnouncementIds: [], notifiedUpdateVersion: "", serviceStatus: void 0 }, SUPPORTED_EXTENSIONS = new Set(["md", "markdown", "txt", "canvas", "pdf", "png", "jpg", "jpeg", "gif", "webp", "svg", "mp3", "m4a", "wav", "mp4", "webm", "mov", "docx", "xlsx", "pptx"]);
+const DEFAULT_SETTINGS: PluginSettings = { serverUrl: OFFICIAL_ENTRY_URL, websiteUrl: OFFICIAL_ENTRY_URL, phone: "", password: "", quotaCode: "", token: "", refreshToken: "", tokenExpiresAt: 0, pendingAuth: void 0, state: {}, syncAllFolders: true, selectedFolders: [], autoSync: true, syncIntervalMinutes: 5, maxFileSizeMB: h.Platform.isMobile ? 50 : 200, conflictStrategy: "keep-both", serviceNotices: true, lastServiceCheckAt: 0, seenAnnouncementIds: [], notifiedUpdateVersion: "", serviceStatus: void 0 }, SUPPORTED_EXTENSIONS = new Set(["md", "markdown", "txt", "canvas", "pdf", "png", "jpg", "jpeg", "gif", "webp", "svg", "mp3", "m4a", "wav", "mp4", "webm", "mov", "docx", "xlsx", "pptx"]);
 async function digestBytes(c: ArrayBuffer) {
     let t = await crypto.subtle.digest("SHA-256", c);
     return [...new Uint8Array(t)].map((e) => e.toString(16).padStart(2, "0")).join("");
@@ -94,6 +96,10 @@ export default class NoteCloudPlugin extends h.Plugin {
     scopeSaveBlocked = false;
     scopeSyncRequest?: { generation: number; epoch: number; serverUrl: string; accountId: string; saved: boolean };
     disposed = false;
+    entryInitializationBlocked = false;
+    entryRestartRequired = false;
+    private entryStartupSaving = false;
+    private entryRestartNotice?: h.Notice;
     authEpoch = 0;
     authCompleting = false;
     syncedThisSession = false;
@@ -127,12 +133,45 @@ export default class NoteCloudPlugin extends h.Plugin {
         elapsedMs: number;
     };
     async onload() {
-        const raw: unknown = await this.loadData();
-        const t = readSettings(raw, DEFAULT_SETTINGS);
-        {
-            this.settings = { ...DEFAULT_SETTINGS, ...t || {}, state: t?.state || {}, selectedFolders: t?.selectedFolders || [], seenAnnouncementIds: t?.seenAnnouncementIds || [] };
+        this.entryInitializationBlocked = true;
+        const epoch = this.authEpoch || 0;
+        let migrated = false;
+        try {
+            const raw: unknown = await this.loadData();
+            this.assertSession(epoch);
+            const prepared = prepareOfficialEntry(raw, DEFAULT_SETTINGS);
+            let restart: EntryMigrationRestart | undefined;
+            if (prepared.migrated) {
+                restart = await ensureEntryMigrationRestart(this.app, this.manifest);
+                this.assertSession(epoch);
+                if (!restart.ready) {
+                    this.entryRestartRequired = true;
+                    this.addSettingTab(new EntryRestartSettingsTab(this.app, this));
+                    this.entryRestartNotice = new h.Notice("NoteCloud 已更新。首次切换入口请完全退出所有 Obsidian 窗口，再重新打开；手机上请结束应用后重开。无需修改地址，笔记与登录状态会保留。", 0);
+                    return;
+                }
+            }
+            this.settings = prepared.settings;
             this.settings.password = "";
-            await this.saveSettings();
+            this.entryStartupSaving = true;
+            try { await this.saveSettings(); }
+            finally { this.entryStartupSaving = false; }
+            this.assertSession(epoch);
+            if (restart) {
+                // The canonical settings are already saved. A leftover metadata
+                // marker has no authority once these settings use the new entry.
+                try { await finishEntryMigration(this.app, this.manifest, restart); }
+                catch { /* Preserve successful migration if metadata cleanup is unavailable. */ }
+                this.assertSession(epoch);
+            }
+            migrated = prepared.migrated;
+            this.entryInitializationBlocked = false;
+        } catch {
+            new h.Notice("NoteCloud 配置未能安全加载或保存，已暂停连接。请检查存储权限后重新启用插件。", 12000);
+            throw new Error("NoteCloud settings initialization failed; network access remains paused");
+        }
+        if (migrated) new h.Notice("NoteCloud 已切换到新服务入口，登录状态与同步记录已保留。", 8000);
+        {
             this.authPolicy = { passwordHint: "\u5BC6\u7801\u81F3\u5C11 8 \u4F4D\uFF0C\u4E14\u5FC5\u987B\u540C\u65F6\u5305\u542B\u5B57\u6BCD\u548C\u6570\u5B57\u3002", emailCodeLength: 6, emailCodeExpiresMinutes: 10 };
             await this.loadAuthPolicy();
             this.syncedThisSession = false;
@@ -174,6 +213,7 @@ export default class NoteCloudPlugin extends h.Plugin {
     }
     onunload() {
         this.disposed = true;
+        this.entryRestartNotice?.hide();
         this.authEpoch = (this.authEpoch || 0) + 1;
         this.cancelSync();
         this.autoSyncCoordinator?.dispose();
@@ -332,11 +372,13 @@ export default class NoteCloudPlugin extends h.Plugin {
         catch { /* Use the local explanatory defaults when the policy endpoint is unavailable. */ }
     }
     async checkServiceStatus(t = false) {
+        const epoch = this.authEpoch || 0;
         if (!t && Date.now() - Math.max(this.settings.lastServiceCheckAt || 0, this.lastServiceAttemptAt || 0) < 5 * 60 * 1000)
             return this.settings.serviceStatus;
         this.lastServiceAttemptAt = Date.now();
         try {
             let e = readStatus(await this.request(`/v1/plugin/status?version=${encodeURIComponent(this.manifest.version)}&platform=${h.Platform.isMobile ? "mobile" : "desktop"}`)), s = compareVersions(this.manifest.version, e.latestVersion) < 0;
+            this.assertSession(epoch);
             {
                 this.settings.serviceStatus = e;
                 this.settings.lastServiceCheckAt = Date.now();
@@ -360,8 +402,13 @@ export default class NoteCloudPlugin extends h.Plugin {
         }
     }
     async saveSettings() {
+        const assertWritable = () => {
+            if (this.disposed || this.entryRestartRequired || (this.entryInitializationBlocked && !this.entryStartupSaving))
+                throw new support.ServiceError("首次升级请完全退出并重新打开 Obsidian，当前设置写入已暂停", 409);
+        };
+        assertWritable();
         const snapshot: unknown = JSON.parse(JSON.stringify(this.settings));
-        this.saveFlight = (this.saveFlight || Promise.resolve()).catch(() => { }).then(() => this.saveData(snapshot));
+        this.saveFlight = (this.saveFlight || Promise.resolve()).catch(() => { }).then(() => { assertWritable(); return this.saveData(snapshot); });
         await this.saveFlight;
     }
     openSettings() {
@@ -445,6 +492,7 @@ export default class NoteCloudPlugin extends h.Plugin {
         }
     }
     async request(route: string, options: RequestOptions = {}): Promise<unknown> {
+        this.assertEntryReady();
         const headers = new Headers(options.headers);
         if (options.body !== undefined)
             headers.set("Content-Type", "application/json");
@@ -470,6 +518,10 @@ export default class NoteCloudPlugin extends h.Plugin {
         if (this.disposed || (this.authEpoch || 0) !== epoch)
             throw new support.ServiceError("账号已变化，操作已停止", 409);
     }
+    assertEntryReady() {
+        if (this.entryInitializationBlocked || this.disposed)
+            throw new support.ServiceError("插件配置尚未保存，连接已暂停，请重新启用插件", 409);
+    }
     async authorizedRequest(route: string, options: RequestOptions = {}): Promise<unknown> {
         const epoch = this.authEpoch || 0;
         if (this.settings.refreshToken && this.settings.tokenExpiresAt && this.settings.tokenExpiresAt < Date.now() + 30000)
@@ -493,6 +545,7 @@ export default class NoteCloudPlugin extends h.Plugin {
         }
     }
     async binaryRequest(route: string, method = "GET", bytes?: ArrayBuffer) {
+        this.assertEntryReady();
         const headers: Record<string, string> = {};
         if (this.settings.token)
             headers.Authorization = "Bearer " + this.settings.token;
@@ -539,14 +592,22 @@ export default class NoteCloudPlugin extends h.Plugin {
         return this.beginWebAuth("forgot");
     }
     async beginWebAuth(action = "login") {
+        this.assertEntryReady();
         if (this.syncing)
             return void new h.Notice("请等当前同步完成后再操作账号");
+        const epoch = this.authEpoch || 0, websiteUrl = this.settings.websiteUrl;
         this.autoSyncCoordinator?.cancel();
         const verifier = base64Url(crypto.getRandomValues(new Uint8Array(48))), state = base64Url(crypto.getRandomValues(new Uint8Array(24))), challenge = base64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
+        this.assertSession(epoch);
+        this.assertEntryReady();
+        if (websiteUrl !== this.settings.websiteUrl) throw new support.ServiceError("服务入口已变化，请重新打开登录页", 409);
         {
             this.settings.pendingAuth = { verifier, state, createdAt: Date.now() };
             await this.saveSettings();
         }
+        this.assertSession(epoch);
+        this.assertEntryReady();
+        if (websiteUrl !== this.settings.websiteUrl) throw new support.ServiceError("服务入口已变化，请重新打开登录页", 409);
         const deviceName = `${h.Platform.isMobile ? "Obsidian Mobile" : "Obsidian Desktop"} \u00B7 ${this.app.vault.getName()}`;
         const url = `${this.settings.websiteUrl.replace(/\/$/, "")}/auth/plugin?state=${encodeURIComponent(state)}&code_challenge=${encodeURIComponent(challenge)}&device_name=${encodeURIComponent(deviceName)}&action=${encodeURIComponent(action)}`;
         {
@@ -740,11 +801,17 @@ export default class NoteCloudPlugin extends h.Plugin {
     }
     async openWebPortal(destination?: string) {
         try {
+            this.assertEntryReady();
+            const epoch = this.authEpoch || 0, serverUrl = this.settings.serverUrl, websiteUrl = this.settings.websiteUrl;
             if (!(this.settings.token)) {
                 await this.login();
             }
             const t = objectValue(await this.authorizedRequest("/v1/auth/web-ticket", { method: "POST", body: "{}" }));
-            const url = new URL(stringValue(t.url));
+            this.assertSession(epoch);
+            this.assertEntryReady();
+            if (serverUrl !== this.settings.serverUrl || websiteUrl !== this.settings.websiteUrl)
+                throw new support.ServiceError("服务入口已变化，请重新打开网页", 409);
+            const url = checkedPortalUrl(stringValue(t.url), websiteUrl);
             if (destination === "/feedback" || destination === "/billing")
                 url.pathname = destination;
             window.open(url.href, "_blank", "noopener,noreferrer");
@@ -1151,6 +1218,15 @@ export default class NoteCloudPlugin extends h.Plugin {
             this.resumeScopeSync();
             this.updateSyncButton();
         }
+    }
+}
+/** A waiting upgrade must not expose settings controls that can save stale state. */
+class EntryRestartSettingsTab extends h.PluginSettingTab {
+    display() {
+        this.containerEl.empty();
+        this.containerEl.createEl("h2", { text: "重启后完成入口切换" });
+        this.containerEl.createEl("p", { text: "插件已更新。请完全退出所有 Obsidian 窗口后重新打开；手机上请结束应用后重开。" });
+        this.containerEl.createEl("p", { text: "不需要修改服务器地址。重新打开后会自动切换入口，并保留登录状态、同步范围和笔记记录。完成前暂不发起同步。" });
     }
 }
 class NoteCloudSettingsTab extends h.PluginSettingTab {
