@@ -43,7 +43,8 @@ export function ingest(plugin: CommunityPlugin, incoming: Announcement[]): void 
   for (const item of incoming || []) if (item?.id && typeof item.title === "string" && typeof item.message === "string") map.set(item.id, { ...item, active: true });
   plugin.settings.announcementHistory = [...map.values()].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 10).filter(item => !deleted.has(item.id));
   const known = new Set(plugin.settings.announcementHistory.map(item => item.id));
-  plugin.settings.readAnnouncementIds = (plugin.settings.readAnnouncementIds || []).filter(id => known.has(id));
+  const eligible=plugin.settings.account?.announcementNotificationIds;
+  plugin.settings.readAnnouncementIds = [...new Set([...(plugin.settings.readAnnouncementIds || []).filter(id => known.has(id)), ...(incoming||[]).filter(item=>item.notify===false || item.notify===undefined && eligible && !eligible.includes(item.id)).map(item=>item.id)])];
   updateIcon(plugin);
 }
 export function initialize(plugin: CommunityPlugin): void {

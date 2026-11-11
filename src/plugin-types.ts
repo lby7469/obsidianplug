@@ -7,6 +7,7 @@ export interface Announcement {
   format?: "text" | "markdown";
   linkUrl?: string;
   active?: boolean;
+  notify?: boolean;
 }
 export interface RenewalNotice { title: string; message: string; level?: string }
 export interface Account {
@@ -19,6 +20,9 @@ export interface Account {
   syncWritesAllowed?: boolean;
   renewalNotice?: RenewalNotice;
   subscription?: { expiresAt: string };
+  storageEpoch?: number;
+  quotaRecovery?: {code:string;message:string;actions:string[]} | null;
+  announcementNotificationIds?: string[];
 }
 export interface AuthTokens extends Account { token: string; refreshToken: string; expiresIn: number }
 export interface ServiceStatus {
@@ -43,6 +47,7 @@ export interface PluginSettings {
   pendingAuth?: PendingAuth;
   state: Record<string, SyncState>;
   stateAccountId?: string;
+  stateStorageEpoch?: number;
   accountSwitchPending?: boolean;
   account?: Account;
   syncAllFolders: boolean;
@@ -93,6 +98,7 @@ export function readAccount(value: unknown): Account {
     id: stringValue(data.id), usedBytes: numberValue(data.usedBytes), quotaBytes: numberValue(data.quotaBytes),
     displayName: optionalString(data.displayName), phone: optionalString(data.phone), customerStage: optionalString(data.customerStage),
     syncWritesAllowed: optionalBoolean(data.syncWritesAllowed),
+    announcementNotificationIds: Array.isArray(data.announcementNotificationIds) ? strings(data.announcementNotificationIds) : undefined,
     renewalNotice: notice ? { title: stringValue(notice.title), message: stringValue(notice.message), level: optionalString(notice.level) } : undefined,
     subscription: subscription ? { ...subscription, expiresAt: stringValue(subscription.expiresAt) } : undefined,
   };
@@ -103,7 +109,7 @@ export function readTokens(value: unknown): AuthTokens {
 }
 function readAnnouncement(value: unknown): Announcement {
   const data = objectValue(value);
-  return { id: stringValue(data.id), title: stringValue(data.title), message: stringValue(data.message), createdAt: optionalString(data.createdAt), format: data.format === "markdown" ? "markdown" : "text", linkUrl: optionalString(data.linkUrl), active: optionalBoolean(data.active) };
+  return { id: stringValue(data.id), title: stringValue(data.title), message: stringValue(data.message), createdAt: optionalString(data.createdAt), format: data.format === "markdown" ? "markdown" : "text", linkUrl: optionalString(data.linkUrl), active: optionalBoolean(data.active), notify: optionalBoolean(data.notify) };
 }
 export function readStatus(value: unknown): ServiceStatus {
   const data = objectValue(value);

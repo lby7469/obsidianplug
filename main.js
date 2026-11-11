@@ -352,6 +352,24 @@ __export(main_exports, {
   default: () => NoteCloudPlugin
 });
 module.exports = __toCommonJS(main_exports);
+
+// src/storage-epoch.ts
+function reconcileStorageEpoch(settings2, account) {
+  const next = account.storageEpoch;
+  if (next === void 0) return false;
+  if (!Number.isSafeInteger(next) || next < 0) throw new Error("\u4ED3\u5E93\u72B6\u6001\u5F02\u5E38\uFF0C\u5DF2\u505C\u6B62\u540C\u6B65");
+  const previous = settings2.stateStorageEpoch || 0;
+  if (next < previous) throw new Error("\u670D\u52A1\u5668\u4ED3\u5E93\u72B6\u6001\u56DE\u9000\uFF0C\u8BF7\u8054\u7CFB\u7BA1\u7406\u5458\uFF0C\u5DF2\u505C\u6B62\u540C\u6B65");
+  const changed = next !== previous;
+  if (changed) {
+    settings2.state = {};
+    settings2.lastSyncAt = "";
+  }
+  settings2.stateStorageEpoch = next;
+  return changed;
+}
+
+// src/main.ts
 var h = __toESM(require("obsidian"));
 
 // src/community.ts
@@ -4632,12 +4650,14 @@ function updateIcon(plugin) {
   button.title = `NoteCloud\uFF1A${count} \u6761\u672A\u8BFB\u516C\u544A`;
 }
 function ingest(plugin, incoming) {
+  var _a2;
   const deleted = new Set(plugin.settings.deletedAnnouncementIds || []);
   const map = new Map((plugin.settings.announcementHistory || []).map((item) => [item.id, { ...item, active: false }]));
   for (const item of incoming || []) if ((item == null ? void 0 : item.id) && typeof item.title === "string" && typeof item.message === "string") map.set(item.id, { ...item, active: true });
   plugin.settings.announcementHistory = [...map.values()].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 10).filter((item) => !deleted.has(item.id));
   const known = new Set(plugin.settings.announcementHistory.map((item) => item.id));
-  plugin.settings.readAnnouncementIds = (plugin.settings.readAnnouncementIds || []).filter((id) => known.has(id));
+  const eligible = (_a2 = plugin.settings.account) == null ? void 0 : _a2.announcementNotificationIds;
+  plugin.settings.readAnnouncementIds = [.../* @__PURE__ */ new Set([...(plugin.settings.readAnnouncementIds || []).filter((id) => known.has(id)), ...(incoming || []).filter((item) => item.notify === false || item.notify === void 0 && eligible && !eligible.includes(item.id)).map((item) => item.id)])];
   updateIcon(plugin);
 }
 function initialize(plugin) {
@@ -4846,6 +4866,7 @@ var AccountRefresh = class {
 
 // src/renewal.ts
 var import_obsidian2 = require("obsidian");
+var shownQuotaNotice = /* @__PURE__ */ new WeakMap();
 function currentNotice(plugin) {
   const settings2 = plugin.settings, account = settings2.account;
   if (!settings2.token && !settings2.refreshToken || !account || settings2.accountSwitchPending || plugin.authCompleting) return null;
@@ -4862,7 +4883,7 @@ function renderCard(plugin, container) {
   new import_obsidian2.Setting(container).addButton((button) => button.setButtonText("\u67E5\u770B\u7EED\u8D39\u4E0E\u8BB0\u5F55").setCta().onClick(() => void plugin.openWebPortal("/billing"))).addButton((button) => button.setButtonText("\u5237\u65B0\u72B6\u6001").onClick(() => void plugin.refreshAccount(true)));
 }
 function update(plugin) {
-  var _a2;
+  var _a2, _b;
   if (typeof document === "undefined" || plugin.disposed) return;
   const notice = currentNotice(plugin);
   if (!plugin.renewalButton) {
@@ -4880,6 +4901,13 @@ function update(plugin) {
   button.setAttribute("aria-label", notice ? "NoteCloud \u7EED\u8D39\u63D0\u9192\uFF1A" + notice.title : "NoteCloud \u7EED\u8D39\u63D0\u9192");
   button.title = (notice == null ? void 0 : notice.title) || "\u7EED\u8D39\u63D0\u9192";
   if (((_a2 = plugin.renewalTop) == null ? void 0 : _a2.isConnected) !== false && plugin.renewalTop) renderCard(plugin, plugin.renewalTop);
+  if (notice && ((_b = plugin.settings.account) == null ? void 0 : _b.quotaRecovery)) {
+    const a = plugin.settings.account, key = [a.id, a.storageEpoch || 0, a.quotaBytes].join(":");
+    if (shownQuotaNotice.get(plugin) !== key) {
+      shownQuotaNotice.set(plugin, key);
+      open(plugin);
+    }
+  }
 }
 function renderTop2(plugin, container) {
   plugin.renewalTop = container.createDiv({ cls: "notecloud-renewal-card" });
@@ -4898,6 +4926,7 @@ function open(plugin) {
       modal.contentEl.empty();
       void modal.onOpen();
     }));
+    if (account == null ? void 0 : account.quotaRecovery) new import_obsidian2.Setting(modal.contentEl).addButton((button) => button.setButtonText("\u4ED8\u8D39\u6269\u5BB9").setCta().onClick(() => void plugin.openWebPortal("/billing"))).addButton((button) => button.setButtonText("\u6E05\u7A7A\u4E91\u7AEF\u7B14\u8BB0\u540E\u91CD\u65B0\u4E0A\u4F20").onClick(() => void plugin.openWebPortal("/billing?action=reset-vault")));
   };
   modal.open();
 }
@@ -5375,6 +5404,7 @@ function readAccount(value) {
     phone: optionalString(data.phone),
     customerStage: optionalString(data.customerStage),
     syncWritesAllowed: optionalBoolean(data.syncWritesAllowed),
+    announcementNotificationIds: Array.isArray(data.announcementNotificationIds) ? strings(data.announcementNotificationIds) : void 0,
     renewalNotice: notice ? { title: stringValue(notice.title), message: stringValue(notice.message), level: optionalString(notice.level) } : void 0,
     subscription: subscription ? { ...subscription, expiresAt: stringValue(subscription.expiresAt) } : void 0
   };
@@ -5385,7 +5415,7 @@ function readTokens(value) {
 }
 function readAnnouncement(value) {
   const data = objectValue(value);
-  return { id: stringValue(data.id), title: stringValue(data.title), message: stringValue(data.message), createdAt: optionalString(data.createdAt), format: data.format === "markdown" ? "markdown" : "text", linkUrl: optionalString(data.linkUrl), active: optionalBoolean(data.active) };
+  return { id: stringValue(data.id), title: stringValue(data.title), message: stringValue(data.message), createdAt: optionalString(data.createdAt), format: data.format === "markdown" ? "markdown" : "text", linkUrl: optionalString(data.linkUrl), active: optionalBoolean(data.active), notify: optionalBoolean(data.notify) };
 }
 function readStatus(value) {
   const data = objectValue(value);
@@ -6074,15 +6104,18 @@ var NoteCloudPlugin = class extends h.Plugin {
     }
   }
   async request(route, options2 = {}) {
+    const storageEpoch = this.settings.stateStorageEpoch || 0;
     this.assertEntryReady();
     const headers = new Headers(options2.headers);
     if (options2.body !== void 0)
       headers.set("Content-Type", "application/json");
     if (this.settings.token)
       headers.set("Authorization", "Bearer " + this.settings.token);
+    if (route.startsWith("/v1/sync/")) headers.set("X-NoteCloud-Storage-Epoch", String(this.settings.stateStorageEpoch || 0));
     const plainHeaders = {};
     headers.forEach((value, key) => plainHeaders[key] = value);
     const response = await timed(h.requestUrl({ url: this.settings.serverUrl.replace(/\/$/, "") + route, method: options2.method || "GET", body: options2.body, headers: plainHeaders, throw: false }));
+    if (route.startsWith("/v1/sync/") && storageEpoch !== (this.settings.stateStorageEpoch || 0)) throw new ServiceError("\u4ED3\u5E93\u5DF2\u91CD\u5EFA\uFF0C\u5DF2\u5FFD\u7565\u65E7\u540C\u6B65\u7ED3\u679C", 499);
     let body;
     try {
       body = response.json;
@@ -6125,11 +6158,14 @@ var NoteCloudPlugin = class extends h.Plugin {
     }
   }
   async binaryRequest(route, method = "GET", bytes) {
+    const storageEpoch = this.settings.stateStorageEpoch || 0;
     this.assertEntryReady();
     const headers = {};
+    if (route.startsWith("/v1/sync/")) headers["X-NoteCloud-Storage-Epoch"] = String(this.settings.stateStorageEpoch || 0);
     if (this.settings.token)
       headers.Authorization = "Bearer " + this.settings.token;
     const response = await timed(h.requestUrl({ url: this.settings.serverUrl.replace(/\/$/, "") + route, method, body: bytes, contentType: bytes !== void 0 ? "application/octet-stream" : void 0, headers, throw: false }), 12e4);
+    if (route.startsWith("/v1/sync/") && storageEpoch !== (this.settings.stateStorageEpoch || 0)) throw new ServiceError("\u4ED3\u5E93\u5DF2\u91CD\u5EFA\uFF0C\u5DF2\u5FFD\u7565\u65E7\u540C\u6B65\u7ED3\u679C", 499);
     if (response.status < 200 || response.status >= 300) {
       let body;
       try {
@@ -6218,6 +6254,8 @@ var NoteCloudPlugin = class extends h.Plugin {
         this.settings.lastSyncAt = "";
         this.configureAutoSync();
       }
+      if (changed) this.settings.stateStorageEpoch = 0;
+      reconcileStorageEpoch(this.settings, result);
       this.settings.stateAccountId = result.id;
       {
         this.settings.token = result.token;
@@ -6276,17 +6314,26 @@ var NoteCloudPlugin = class extends h.Plugin {
       },
       read: async () => readAccount(await this.authorizedRequest("/v1/account")),
       apply: async (account) => {
-        var _a3, _b, _c, _d;
+        var _a3, _b, _c, _d, _e, _f, _g;
         const expected = this.settings.stateAccountId || ((_a3 = this.settings.account) == null ? void 0 : _a3.id);
         if (expected && account.id !== expected)
           throw new ServiceError("\u8D26\u53F7\u4E0D\u4E00\u81F4\uFF0C\u8BF7\u91CD\u65B0\u767B\u5F55", 401);
-        const changed = JSON.stringify(this.settings.account) !== JSON.stringify(account);
-        const resumed = ((_b = this.settings.account) == null ? void 0 : _b.syncWritesAllowed) === false && account.syncWritesAllowed === true;
+        const reset = reconcileStorageEpoch(this.settings, account);
+        if (reset) {
+          if (this.syncRun) this.syncRun.cancelled = true;
+          (_b = this.digestCache) == null ? void 0 : _b.clear();
+          (_c = this.dirtyPaths) == null ? void 0 : _c.clear();
+          this.pendingChanges = true;
+          new h.Notice("\u670D\u52A1\u7AEF\u4ED3\u5E93\u5DF2\u91CD\u5EFA\u3002\u8BBE\u5907\u4E2D\u7684\u7B14\u8BB0\u5DF2\u4FDD\u7559\uFF0C\u4E0B\u6B21\u540C\u6B65\u4F1A\u91CD\u65B0\u4E0A\u4F20\uFF0C\u8BF7\u786E\u8BA4\u6240\u9009\u7B14\u8BB0\u603B\u91CF\u4E0D\u8D85\u8FC7\u5F53\u524D\u989D\u5EA6\u3002", 12e3);
+        }
+        const changed = reset || JSON.stringify(this.settings.account) !== JSON.stringify(account);
+        const resumed = ((_d = this.settings.account) == null ? void 0 : _d.syncWritesAllowed) === false && account.syncWritesAllowed === true;
         this.settings.account = account;
+        if ((_e = this.settings.serviceStatus) == null ? void 0 : _e.announcements) ingest(this, this.settings.serviceStatus.announcements);
         this.lastAccountRefreshAt = Date.now();
         this.lastAccountRefreshError = "";
         update(this);
-        (_d = (_c = this.settingsTab) == null ? void 0 : _c.refreshAccountUI) == null ? void 0 : _d.call(_c);
+        (_g = (_f = this.settingsTab) == null ? void 0 : _f.refreshAccountUI) == null ? void 0 : _g.call(_f);
         if (changed)
           await this.saveSettings();
         if (resumed && !this.disposed) {
@@ -6638,11 +6685,13 @@ var NoteCloudPlugin = class extends h.Plugin {
     try {
       if (!this.settings.token)
         await this.login();
-      const [rawManifest] = await Promise.all([this.authorizedRequest("/v1/sync/manifest"), this.checkServiceStatus(false), this.refreshAccount(true)]);
+      await this.refreshAccount(true);
+      this.checkRun();
+      const [rawManifest] = await Promise.all([this.authorizedRequest("/v1/sync/manifest"), this.checkServiceStatus(false)]);
       const manifest = readManifest(rawManifest);
       this.checkRun();
       if (manifest.syncWritesAllowed === false || ((_a2 = this.settings.account) == null ? void 0 : _a2.syncWritesAllowed) === false)
-        throw new ServiceError("\u4ED8\u8D39\u6269\u5BB9\u5DF2\u5230\u671F\u4E14\u8D85\u51FA\u6C38\u4E45\u989D\u5EA6\uFF0C\u540C\u6B65\u5DF2\u6682\u505C\u3002\u4ECD\u53EF\u5728\u7F51\u9875\u6D4F\u89C8\u3001\u4E0B\u8F7D\u548C\u6E05\u7406\uFF1B\u7EED\u8D39\u540E\u81EA\u52A8\u6062\u590D\u3002", 402);
+        throw new ServiceError("\u60A8\u7684\u4E91\u7AEF\u7B14\u8BB0\u5BB9\u91CF\u8D85\u8FC7\u4E86\u60A8\u73B0\u5728\u7684\u5B58\u50A8\u989D\u5EA6\uFF0C\u540C\u6B65\u5DF2\u6682\u505C\u3002\u8BF7\u5728\u7EED\u8D39\u9875\u9762\u9009\u62E9\u4ED8\u8D39\u6269\u5BB9\uFF0C\u6216\u6E05\u7A7A\u4E91\u7AEF\u7B14\u8BB0\u540E\u91CD\u65B0\u4E0A\u4F20\u540C\u6B65\u3002", 402);
       const remote = new Map(manifest.files.filter((file) => safeSyncPath(file.path, this.app.vault.configDir) && SUPPORTED_EXTENSIONS.has((file.path.split(".").pop() || "").toLowerCase()) && this.fileInScope(file.path)).map((file) => [file.path, file]));
       const allFiles = scopedVaultFiles(this.app.vault, this.settings), localPaths = new Set(allFiles.map((file) => file.path));
       const limit = Math.min((this.settings.maxFileSizeMB || (h.Platform.isMobile ? 50 : 200)) * 1024 * 1024, ((_b = this.settings.serviceStatus) == null ? void 0 : _b.maxUploadBytes) || Infinity);

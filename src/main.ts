@@ -1,3 +1,4 @@
+import { reconcileStorageEpoch } from "./storage-epoch";
 import * as h from "obsidian";
 import * as community from "./community";
 import * as support from "./sync-support";
@@ -492,15 +493,18 @@ export default class NoteCloudPlugin extends h.Plugin {
         }
     }
     async request(route: string, options: RequestOptions = {}): Promise<unknown> {
+        const storageEpoch = this.settings.stateStorageEpoch || 0;
         this.assertEntryReady();
         const headers = new Headers(options.headers);
         if (options.body !== undefined)
             headers.set("Content-Type", "application/json");
         if (this.settings.token)
             headers.set("Authorization", "Bearer " + this.settings.token);
+        if(route.startsWith("/v1/sync/")) headers.set("X-NoteCloud-Storage-Epoch", String(this.settings.stateStorageEpoch || 0));
         const plainHeaders: Record<string, string> = {};
         headers.forEach((value, key) => plainHeaders[key] = value);
         const response = await support.timed(h.requestUrl({ url: this.settings.serverUrl.replace(/\/$/, "") + route, method: options.method || "GET", body: options.body, headers: plainHeaders, throw: false }));
+        if(route.startsWith("/v1/sync/") && storageEpoch !== (this.settings.stateStorageEpoch || 0)) throw new support.ServiceError("仓库已重建，已忽略旧同步结果",499);
         let body: unknown;
         try {
             body = response.json;
@@ -545,11 +549,14 @@ export default class NoteCloudPlugin extends h.Plugin {
         }
     }
     async binaryRequest(route: string, method = "GET", bytes?: ArrayBuffer) {
+        const storageEpoch = this.settings.stateStorageEpoch || 0;
         this.assertEntryReady();
         const headers: Record<string, string> = {};
+        if(route.startsWith("/v1/sync/")) headers["X-NoteCloud-Storage-Epoch"] = String(this.settings.stateStorageEpoch || 0);
         if (this.settings.token)
             headers.Authorization = "Bearer " + this.settings.token;
         const response = await support.timed(h.requestUrl({ url: this.settings.serverUrl.replace(/\/$/, "") + route, method, body: bytes, contentType: bytes !== undefined ? "application/octet-stream" : undefined, headers, throw: false }), 120000);
+        if(route.startsWith("/v1/sync/") && storageEpoch !== (this.settings.stateStorageEpoch || 0)) throw new support.ServiceError("仓库已重建，已忽略旧同步结果",499);
         if (response.status < 200 || response.status >= 300) {
             let body: unknown;
             try {
@@ -638,6 +645,8 @@ export default class NoteCloudPlugin extends h.Plugin {
                 this.settings.lastSyncAt = "";
                 this.configureAutoSync();
             }
+            if(changed) this.settings.stateStorageEpoch=0;
+            reconcileStorageEpoch(this.settings,result);
             this.settings.stateAccountId = result.id;
             {
                 this.settings.token = result.token;
@@ -696,9 +705,16 @@ export default class NoteCloudPlugin extends h.Plugin {
                 const expected = this.settings.stateAccountId || this.settings.account?.id;
                 if (expected && account.id !== expected)
                     throw new support.ServiceError("账号不一致，请重新登录", 401);
-                const changed = JSON.stringify(this.settings.account) !== JSON.stringify(account);
+                const reset = reconcileStorageEpoch(this.settings, account);
+                if (reset) {
+                    if (this.syncRun) this.syncRun.cancelled = true;
+                    this.digestCache?.clear(); this.dirtyPaths?.clear(); this.pendingChanges = true;
+                    new h.Notice("服务端仓库已重建。设备中的笔记已保留，下次同步会重新上传，请确认所选笔记总量不超过当前额度。", 12000);
+                }
+                const changed = reset || JSON.stringify(this.settings.account) !== JSON.stringify(account);
                 const resumed = this.settings.account?.syncWritesAllowed === false && account.syncWritesAllowed === true;
                 this.settings.account = account;
+                if(this.settings.serviceStatus?.announcements)community.ingest(this,this.settings.serviceStatus.announcements);
                 this.lastAccountRefreshAt = Date.now();
                 this.lastAccountRefreshError = "";
                 renewal.update(this);
@@ -1064,11 +1080,13 @@ export default class NoteCloudPlugin extends h.Plugin {
         try {
             if (!this.settings.token)
                 await this.login();
-            const [rawManifest] = await Promise.all([this.authorizedRequest("/v1/sync/manifest"), this.checkServiceStatus(false), this.refreshAccount(true)]);
+            await this.refreshAccount(true);
+            this.checkRun();
+            const [rawManifest] = await Promise.all([this.authorizedRequest("/v1/sync/manifest"), this.checkServiceStatus(false)]);
             const manifest = readManifest(rawManifest);
             this.checkRun();
             if (manifest.syncWritesAllowed === false || this.settings.account?.syncWritesAllowed === false)
-                throw new support.ServiceError("付费扩容已到期且超出永久额度，同步已暂停。仍可在网页浏览、下载和清理；续费后自动恢复。", 402);
+                throw new support.ServiceError("您的云端笔记容量超过了您现在的存储额度，同步已暂停。请在续费页面选择付费扩容，或清空云端笔记后重新上传同步。", 402);
             const remote = new Map(manifest.files.filter(file => support.safeSyncPath(file.path, this.app.vault.configDir) && SUPPORTED_EXTENSIONS.has((file.path.split(".").pop() || "").toLowerCase()) && this.fileInScope(file.path)).map(file => [file.path, file]));
             const allFiles = scopedVaultFiles(this.app.vault, this.settings), localPaths = new Set(allFiles.map(file => file.path));
             const limit = Math.min((this.settings.maxFileSizeMB || (h.Platform.isMobile ? 50 : 200)) * 1024 * 1024, this.settings.serviceStatus?.maxUploadBytes || Infinity);

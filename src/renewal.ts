@@ -12,6 +12,7 @@ export interface RenewalPlugin {
   refreshAccount(force: boolean): Promise<Account | undefined>;
   saveSettings(): Promise<void>;
 }
+const shownQuotaNotice=new WeakMap<RenewalPlugin,string>();
 
 export function currentNotice(plugin: RenewalPlugin): RenewalNotice | null {
   const settings = plugin.settings, account = settings.account;
@@ -44,6 +45,7 @@ export function update(plugin: RenewalPlugin): void {
   button.setAttribute("aria-label", notice ? "NoteCloud 续费提醒：" + notice.title : "NoteCloud 续费提醒");
   button.title = notice?.title || "续费提醒";
   if (plugin.renewalTop?.isConnected !== false && plugin.renewalTop) renderCard(plugin, plugin.renewalTop);
+  if(notice && plugin.settings.account?.quotaRecovery){const a=plugin.settings.account,key=[a.id,a.storageEpoch||0,a.quotaBytes].join(":");if(shownQuotaNotice.get(plugin)!==key){shownQuotaNotice.set(plugin,key);open(plugin);}}
 }
 export function renderTop(plugin: RenewalPlugin, container: HTMLElement): void {
   plugin.renewalTop = container.createDiv({ cls: "notecloud-renewal-card" });
@@ -58,6 +60,7 @@ export function open(plugin: RenewalPlugin): void {
     if (account?.subscription) modal.contentEl.createEl("p", { text: "扩容到期时间：" + new Date(account.subscription.expiresAt).toLocaleString() });
     modal.contentEl.createEl("p", { text: "目前由管理员手动登记续费。办理后返回插件，状态会自动刷新；也可以点击刷新状态。" });
     new Setting(modal.contentEl).addButton(button => button.setButtonText("查看记录 / 联系管理员").setCta().onClick(() => void plugin.openWebPortal("/billing"))).addButton(button => button.setButtonText("刷新状态").onClick(async () => { await plugin.refreshAccount(true); modal.contentEl.empty(); void modal.onOpen(); }));
+    if(account?.quotaRecovery)new Setting(modal.contentEl).addButton(button=>button.setButtonText("付费扩容").setCta().onClick(()=>void plugin.openWebPortal("/billing"))).addButton(button=>button.setButtonText("清空云端笔记后重新上传").onClick(()=>void plugin.openWebPortal("/billing?action=reset-vault")));
   };
   modal.open();
 }
