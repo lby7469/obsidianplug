@@ -10,6 +10,7 @@ Sync Obsidian notes with a NoteCloud account while preserving folders. This is a
 - 选择整个仓库或指定文件夹；支持 Markdown、TXT、Canvas 及常见图片、音视频、PDF 和办公附件。
 - Markdown 冲突优先尝试三方合并，无法合并时按所选策略处理，默认保留两份。
 - 查看云端容量、兑换额度、读取公告、提交反馈和查看续费提醒。
+- 主动清空自己的云端仓库，保留本地笔记；输入确认文字后执行，并暂停自动同步。
 - 在 [NoteCloud 网页版](https://notecloud.cloud) 阅读笔记、管理分享；链接分享和公开到首页是不同选项。
 
 同步不是独立备份，也不是只上传不下载的网盘操作。首次使用前请备份仓库，先用少量笔记验证同步结果。
@@ -53,6 +54,7 @@ Sync Obsidian notes with a NoteCloud account while preserving folders. This is a
 | 停止同步 | 请求停止当前同步；已完成的操作保留，不会撤销。 |
 | 刷新额度／刷新状态 | 重新获取账号容量和服务状态。 |
 | 登录／注册／切换账号／忘记密码 | 打开网站完成相应账号操作；切换账号后的「确认同步」用于确认新的同步目标。 |
+| 清空云端仓库 | 先暂停同步，再查看文件数量并输入确认文字；清空当前账号服务端文件、附件、历史版本和相关分享，保留本地笔记及额度。完成或取消后自动同步保持暂停，按需重新开启。 |
 | 退出登录 | 清除本设备的登录状态，不删除本地笔记。 |
 | 打开网站／访问 NoteCloud 网页版 | 打开网页云仓库等功能；已登录时尝试免重复登录跳转。 |
 | 输入兑换码 → 兑换／取消 | 展开兑换框，提交额度兑换码或关闭输入框。 |
@@ -74,7 +76,7 @@ Sync Obsidian notes with a NoteCloud account while preserving folders. This is a
 
 需要自动更新时，在 BRAT 中选择 **latest**，并开启启动时检查更新。固定版本不会自动升级，Obsidian 关闭或无法连接 GitHub 时也不能更新。插件本身不会安装或更新自己。
 
-存储不足时，插件会提示前往网页扩容或清空远端仓库后重新上传。清空必须在网页再次确认，不会删除设备里的笔记；请先暂停其他设备的同步，并保留一份完整的本地笔记。清空后旧版客户端需要更新才能继续同步。新用户只收到注册时最新一条公告提醒，历史公告仍可打开查看。
+存储不足时，插件会提示前往网页扩容或清空远端仓库后重新上传。可在插件设置点击「清空云端仓库」，也可使用网页的超额处理入口。清空需要输入确认文字，不会删除设备里的笔记；请先暂停其他设备的同步，并保留一份完整的本地笔记。清空后旧版客户端需要更新才能继续同步。新用户只收到注册时最新一条公告提醒，历史公告仍可打开查看。
 
 更多文件类型、冲突处理和故障排查见 [用户使用指南](USER_GUIDE.md)。
 
@@ -108,3 +110,7 @@ A NoteCloud account and internet access are required. A limited free tier is ava
 原作者及贡献者：[lby7469](https://github.com/lby7469)。当前维护者：[Yinds0270](https://github.com/Yinds0270)。[原下载仓库](https://github.com/lby7469/obsidianplug)与[当前发布仓库](https://github.com/Yinds0270/NoteCloud)均保留；维护授权见 [MAINTAINERS.md](MAINTAINERS.md)。
 
 插件客户端采用 [MIT License](LICENSE)。第三方组件及许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)；客户端许可不包含服务端或用户数据。构建与发布资料见 [DEVELOPMENT.md](DEVELOPMENT.md)。
+
+### Clear your remote vault
+
+Open **Settings → NoteCloud Sync → 清空云端仓库** (Clear cloud vault), pause sync, review the file count, then type `清空云端笔记` to confirm. This permanently removes this account's server files, attachments, version history and related shares. Your local Obsidian files, account and quota are retained. Automatic sync stays off, including after cancelling the prepared operation. Back up or download anything you need and pause all other devices before clearing; update every device to the current plugin. Choose your sync scope again before syncing or enabling automatic sync to re-upload local files.

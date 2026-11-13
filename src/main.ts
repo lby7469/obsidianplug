@@ -1,4 +1,5 @@
 import { reconcileStorageEpoch } from "./storage-epoch";
+import { openVaultReset } from "./vault-reset";
 import * as h from "obsidian";
 import * as community from "./community";
 import * as support from "./sync-support";
@@ -106,6 +107,7 @@ export default class NoteCloudPlugin extends h.Plugin {
     syncedThisSession = false;
     pendingChanges = true;
     confirmingAccountSync = false;
+    vaultResetting = false;
     lastServiceAttemptAt = 0;
     lastAccountRefreshAt = 0;
     lastAccountRefreshError = "";
@@ -208,6 +210,7 @@ export default class NoteCloudPlugin extends h.Plugin {
         renewal.update(this);
         this.initializeAccountRefresh();
         this.addCommand({ id: "cancel-sync", name: "停止当前同步", callback: () => this.cancelSync() });
+        this.addCommand({ id: "clear-cloud-vault", name: "清空云端仓库", callback: () => openVaultReset(this) });
         this.addCommand({ id: "open-announcements", name: "查看公告", callback: () => community.openAnnouncements(this) });
         this.addCommand({ id: "open-renewal", name: "查看续费与服务期限", callback: () => renewal.open(this) });
         this.addCommand({ id: "send-feedback", name: "意见反馈", callback: () => community.openFeedback(this) });
@@ -244,7 +247,7 @@ export default class NoteCloudPlugin extends h.Plugin {
         }
     }
     autoSyncAllowed() {
-        return this.autoSyncReady && !this.disposed && !this.scopeSaveBlocked && this.settings.autoSync && !this.authCompleting && !this.settings.accountSwitchPending &&
+        return this.autoSyncReady && !this.disposed && !this.vaultResetting && !this.scopeSaveBlocked && this.settings.autoSync && !this.authCompleting && !this.settings.accountSwitchPending &&
             !(this.settings.pendingAuth && Date.now() - this.settings.pendingAuth.createdAt < 10 * 60 * 1000) &&
             !!(this.settings.refreshToken || this.settings.token && (!this.settings.tokenExpiresAt || this.settings.tokenExpiresAt > Date.now())) &&
             !!this.settings.account?.id && (!this.settings.stateAccountId || this.settings.stateAccountId === this.settings.account.id) && this.settings.account.syncWritesAllowed !== false &&
@@ -600,6 +603,7 @@ export default class NoteCloudPlugin extends h.Plugin {
     }
     async beginWebAuth(action = "login") {
         this.assertEntryReady();
+        if (this.vaultResetting) return void new h.Notice("请先关闭清空仓库的确认窗口");
         if (this.syncing)
             return void new h.Notice("请等当前同步完成后再操作账号");
         const epoch = this.authEpoch || 0, websiteUrl = this.settings.websiteUrl;
@@ -709,7 +713,8 @@ export default class NoteCloudPlugin extends h.Plugin {
                 if (reset) {
                     if (this.syncRun) this.syncRun.cancelled = true;
                     this.digestCache?.clear(); this.dirtyPaths?.clear(); this.pendingChanges = true;
-                    new h.Notice("服务端仓库已重建。设备中的笔记已保留，下次同步会重新上传，请确认所选笔记总量不超过当前额度。", 12000);
+                    this.configureAutoSync();
+                    new h.Notice("服务端仓库已清空或重建。本地笔记已保留，自动同步已暂停。请先检查同步范围，再手动同步或重新开启自动同步。", 12000);
                 }
                 const changed = reset || JSON.stringify(this.settings.account) !== JSON.stringify(account);
                 const resumed = this.settings.account?.syncWritesAllowed === false && account.syncWritesAllowed === true;
@@ -778,6 +783,7 @@ export default class NoteCloudPlugin extends h.Plugin {
         throw new Error("\u8BF7\u5728\u5DF2\u6253\u5F00\u7684 NoteCloud \u7F51\u9875\u4E2D\u5B8C\u6210\u767B\u5F55");
     }
     async logout() {
+        if (this.vaultResetting) return void new h.Notice("请先关闭清空仓库的确认窗口");
         if (this.syncing)
             return void new h.Notice("请等当前同步完成后再退出账号");
         this.authEpoch = (this.authEpoch || 0) + 1;
@@ -1006,6 +1012,10 @@ export default class NoteCloudPlugin extends h.Plugin {
         });
     }
     async sync(t: boolean) {
+        if (this.vaultResetting) {
+            if (t) new h.Notice("清空仓库确认期间已暂停同步，请先关闭确认窗口");
+            return;
+        }
         if (this.scopeSaveBlocked) {
             if (t) new h.Notice("同步范围尚未成功保存，请重新调整或保存同步范围后再试");
             return;
@@ -1298,6 +1308,7 @@ class NoteCloudSettingsTab extends h.PluginSettingTab {
         this.quotaSetting = quota;
         this.refreshAccountUI();
         new h.Setting(e).setName("空间自动刷新").setDesc("打开设置和返回 Obsidian 时刷新；设置页停留期间约 10 秒更新一次。").addButton(b => b.setButtonText("刷新额度").onClick(() => void this.plugin.refreshAccount(true))).addButton(b => b.setButtonText("停止同步").onClick(() => this.plugin.cancelSync()));
+        if (i) new h.Setting(e).setName("清空云端仓库").setDesc("清空当前账号的服务端笔记、附件、历史版本和相关分享；保留设备本地笔记。需要输入确认文字，自动同步会暂停。").addButton(b => { b.setButtonText("清空云端仓库").onClick(() => openVaultReset(this.plugin)); b.buttonEl.addClass("mod-warning"); });
         e.createEl("h3", { text: "\u8D26\u6237" });
         let accountActions = new h.Setting(e).setName(i ? `${i.displayName || i.phone || "\u5DF2\u767B\u5F55"}${i.customerStage === "early" ? " \u00B7 \u65E9\u671F\u7528\u6237" : ""}` : "\u5C1A\u672A\u767B\u5F55").setDesc("\u767B\u5F55\u3001\u6CE8\u518C\u3001\u5207\u6362\u8D26\u53F7\u548C\u5FD8\u8BB0\u5BC6\u7801\u5747\u5728 NoteCloud \u7F51\u7AD9\u5B89\u5168\u5B8C\u6210\uFF0C\u63D2\u4EF6\u4E0D\u4FDD\u5B58\u5BC6\u7801");
         {

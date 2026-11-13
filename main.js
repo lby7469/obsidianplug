@@ -364,16 +364,317 @@ function reconcileStorageEpoch(settings2, account) {
   if (changed) {
     settings2.state = {};
     settings2.lastSyncAt = "";
+    settings2.autoSync = false;
   }
   settings2.stateStorageEpoch = next;
   return changed;
+}
+
+// src/vault-reset.ts
+var import_obsidian = require("obsidian");
+
+// src/plugin-types.ts
+function objectValue(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("\u670D\u52A1\u5668\u8FD4\u56DE\u7684\u6570\u636E\u683C\u5F0F\u5F02\u5E38");
+  return value;
+}
+function stringValue(value) {
+  if (typeof value !== "string") throw new Error("\u670D\u52A1\u5668\u8FD4\u56DE\u7684\u6587\u5B57\u5B57\u6BB5\u5F02\u5E38");
+  return value;
+}
+function numberValue(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) throw new Error("\u670D\u52A1\u5668\u8FD4\u56DE\u7684\u6570\u5B57\u5B57\u6BB5\u5F02\u5E38");
+  return value;
+}
+var optionalString = (value) => typeof value === "string" ? value : void 0;
+var optionalNumber = (value) => typeof value === "number" && Number.isFinite(value) ? value : void 0;
+var optionalBoolean = (value) => typeof value === "boolean" ? value : void 0;
+var strings = (value) => Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+function readAccount(value) {
+  const data = objectValue(value);
+  const notice = data.renewalNotice ? objectValue(data.renewalNotice) : void 0;
+  const subscription = data.subscription ? objectValue(data.subscription) : void 0;
+  return {
+    ...data,
+    id: stringValue(data.id),
+    usedBytes: numberValue(data.usedBytes),
+    quotaBytes: numberValue(data.quotaBytes),
+    displayName: optionalString(data.displayName),
+    phone: optionalString(data.phone),
+    customerStage: optionalString(data.customerStage),
+    syncWritesAllowed: optionalBoolean(data.syncWritesAllowed),
+    announcementNotificationIds: Array.isArray(data.announcementNotificationIds) ? strings(data.announcementNotificationIds) : void 0,
+    renewalNotice: notice ? { title: stringValue(notice.title), message: stringValue(notice.message), level: optionalString(notice.level) } : void 0,
+    subscription: subscription ? { ...subscription, expiresAt: stringValue(subscription.expiresAt) } : void 0
+  };
+}
+function readTokens(value) {
+  const data = objectValue(value);
+  return { ...readAccount(value), token: stringValue(data.token), refreshToken: stringValue(data.refreshToken), expiresIn: numberValue(data.expiresIn) };
+}
+function readAnnouncement(value) {
+  const data = objectValue(value);
+  return { id: stringValue(data.id), title: stringValue(data.title), message: stringValue(data.message), createdAt: optionalString(data.createdAt), format: data.format === "markdown" ? "markdown" : "text", linkUrl: optionalString(data.linkUrl), active: optionalBoolean(data.active), notify: optionalBoolean(data.notify) };
+}
+function readStatus(value) {
+  const data = objectValue(value);
+  return { ...data, latestVersion: stringValue(data.latestVersion), releaseUrl: stringValue(data.releaseUrl), maxUploadBytes: optionalNumber(data.maxUploadBytes), maxChunkSize: optionalNumber(data.maxChunkSize), fastUploadBytes: optionalNumber(data.fastUploadBytes), announcements: Array.isArray(data.announcements) ? data.announcements.map(readAnnouncement) : [] };
+}
+function readRemoteFile(value) {
+  const data = objectValue(value);
+  return { path: stringValue(data.path), revision: stringValue(data.revision), size: numberValue(data.size) };
+}
+function readManifest(value) {
+  const data = objectValue(value);
+  if (!Array.isArray(data.files)) throw new Error("\u540C\u6B65\u6587\u4EF6\u6E05\u5355\u683C\u5F0F\u5F02\u5E38");
+  return { files: data.files.map(readRemoteFile), syncWritesAllowed: optionalBoolean(data.syncWritesAllowed) };
+}
+function readUpload(value, requireSession = true) {
+  const data = objectValue(value);
+  return { uploadId: requireSession ? stringValue(data.uploadId) : "", complete: data.complete === true, chunkSize: optionalNumber(data.chunkSize) || 0, record: data.record ? readRemoteFile(data.record) : void 0 };
+}
+function readPolicy(value) {
+  const data = objectValue(value);
+  return { passwordHint: stringValue(data.passwordHint), emailCodeLength: numberValue(data.emailCodeLength), emailCodeExpiresMinutes: numberValue(data.emailCodeExpiresMinutes) };
+}
+function errorMessage(value, fallback = "\u540C\u6B65\u5931\u8D25") {
+  if (value instanceof Error && value.message) return value.message;
+  if (value && typeof value === "object" && "message" in value && typeof value.message === "string") return value.message || fallback;
+  return fallback;
+}
+function errorStatus(value) {
+  return value && typeof value === "object" && "status" in value && typeof value.status === "number" ? value.status : 0;
+}
+function retryAfter(value) {
+  return value && typeof value === "object" && "retryAfterMs" in value && typeof value.retryAfterMs === "number" ? value.retryAfterMs : 0;
+}
+function cachedValue(value, decode) {
+  try {
+    return decode(value);
+  } catch (e) {
+    return void 0;
+  }
+}
+function splitLinesAfterLF(value) {
+  if (!value) return [""];
+  const lines = [];
+  let offset = 0;
+  for (let position = 0; position < value.length; position++) {
+    if (value.charCodeAt(position) === 10) {
+      lines.push(value.slice(offset, position + 1));
+      offset = position + 1;
+    }
+  }
+  if (offset < value.length) lines.push(value.slice(offset));
+  return lines;
+}
+function readSettings(value, defaults) {
+  var _a2, _b, _c, _d, _e;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { ...defaults, state: {}, selectedFolders: [], seenAnnouncementIds: [] };
+  const data = objectValue(value);
+  const state = {};
+  if (data.state && typeof data.state === "object" && !Array.isArray(data.state)) for (const [path, raw] of Object.entries(data.state)) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const entry = objectValue(raw);
+    if (typeof entry.hash === "string" && typeof entry.remoteRevision === "string") state[path] = { hash: entry.hash, remoteRevision: entry.remoteRevision, baseContent: optionalString(entry.baseContent) };
+  }
+  const pending = data.pendingAuth && typeof data.pendingAuth === "object" && !Array.isArray(data.pendingAuth) ? objectValue(data.pendingAuth) : void 0;
+  return {
+    ...defaults,
+    ...data,
+    serverUrl: optionalString(data.serverUrl) || defaults.serverUrl,
+    websiteUrl: optionalString(data.websiteUrl) || defaults.websiteUrl,
+    phone: optionalString(data.phone) || "",
+    password: "",
+    quotaCode: optionalString(data.quotaCode) || "",
+    token: optionalString(data.token) || "",
+    refreshToken: optionalString(data.refreshToken) || "",
+    tokenExpiresAt: optionalNumber(data.tokenExpiresAt) || 0,
+    pendingAuth: pending && typeof pending.verifier === "string" && typeof pending.state === "string" && typeof pending.createdAt === "number" ? { verifier: pending.verifier, state: pending.state, createdAt: pending.createdAt } : void 0,
+    state,
+    stateAccountId: optionalString(data.stateAccountId),
+    accountSwitchPending: optionalBoolean(data.accountSwitchPending),
+    account: data.account ? cachedValue(data.account, readAccount) : void 0,
+    syncAllFolders: (_a2 = optionalBoolean(data.syncAllFolders)) != null ? _a2 : defaults.syncAllFolders,
+    selectedFolders: strings(data.selectedFolders),
+    autoSync: (_b = optionalBoolean(data.autoSync)) != null ? _b : defaults.autoSync,
+    syncIntervalMinutes: (_c = optionalNumber(data.syncIntervalMinutes)) != null ? _c : defaults.syncIntervalMinutes,
+    maxFileSizeMB: (_d = optionalNumber(data.maxFileSizeMB)) != null ? _d : defaults.maxFileSizeMB,
+    conflictStrategy: data.conflictStrategy === "local" || data.conflictStrategy === "cloud" ? data.conflictStrategy : "keep-both",
+    serviceNotices: (_e = optionalBoolean(data.serviceNotices)) != null ? _e : defaults.serviceNotices,
+    renewalNoticeAnimation: optionalBoolean(data.renewalNoticeAnimation),
+    lastServiceCheckAt: optionalNumber(data.lastServiceCheckAt) || 0,
+    seenAnnouncementIds: strings(data.seenAnnouncementIds),
+    readAnnouncementIds: strings(data.readAnnouncementIds),
+    deletedAnnouncementIds: strings(data.deletedAnnouncementIds),
+    announcementHistory: Array.isArray(data.announcementHistory) ? data.announcementHistory.flatMap((item) => {
+      const parsed = cachedValue(item, readAnnouncement);
+      return parsed ? [parsed] : [];
+    }) : void 0,
+    notifiedUpdateVersion: optionalString(data.notifiedUpdateVersion) || "",
+    serviceStatus: data.serviceStatus ? cachedValue(data.serviceStatus, readStatus) : void 0,
+    lastSyncAt: optionalString(data.lastSyncAt)
+  };
+}
+
+// src/vault-reset.ts
+var VaultResetFlow = class {
+  constructor(plugin) {
+    this.plugin = plugin;
+    __publicField(this, "epoch");
+    __publicField(this, "server");
+    __publicField(this, "accountId");
+    __publicField(this, "closed", false);
+    __publicField(this, "confirmation");
+    __publicField(this, "busy", false);
+    var _a2;
+    const s = plugin.settings;
+    if (plugin.vaultResetting) throw new Error("\u5DF2\u6709\u6E05\u7A7A\u64CD\u4F5C\uFF0C\u8BF7\u5148\u5173\u95ED\u539F\u786E\u8BA4\u7A97\u53E3");
+    if (plugin.disposed || plugin.authCompleting || !((_a2 = s.account) == null ? void 0 : _a2.id) || !s.token && !s.refreshToken || s.pendingAuth || s.accountSwitchPending) throw new Error("\u8BF7\u5148\u5B8C\u6210\u5F53\u524D\u8D26\u53F7\u7684\u767B\u5F55");
+    this.epoch = plugin.authEpoch || 0;
+    this.server = s.serverUrl;
+    this.accountId = s.account.id;
+    plugin.vaultResetting = true;
+  }
+  assertCurrent() {
+    var _a2;
+    const p = this.plugin;
+    if (this.closed || p.disposed || p.authCompleting || (p.authEpoch || 0) !== this.epoch || p.settings.serverUrl !== this.server || ((_a2 = p.settings.account) == null ? void 0 : _a2.id) !== this.accountId || p.settings.pendingAuth || p.settings.accountSwitchPending) throw new Error("\u8D26\u53F7\u6216\u670D\u52A1\u5165\u53E3\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u6E05\u7A7A\u7A97\u53E3");
+  }
+  async prepare() {
+    this.assertCurrent();
+    if (this.busy) throw new Error("\u64CD\u4F5C\u8FDB\u884C\u4E2D\uFF0C\u8BF7\u7A0D\u5019");
+    this.busy = true;
+    this.confirmation = void 0;
+    try {
+      const p = this.plugin;
+      p.settings.autoSync = false;
+      p.cancelSync();
+      p.configureAutoSync();
+      await p.saveSettings();
+      const deadline = Date.now() + 3e4;
+      while (p.syncing) {
+        this.assertCurrent();
+        if (Date.now() > deadline) throw new Error("\u540C\u6B65\u4ECD\u5728\u505C\u6B62\u4E2D\uFF0C\u8BF7\u7A0D\u540E\u91CD\u65B0\u786E\u8BA4\uFF1B\u81EA\u52A8\u540C\u6B65\u5DF2\u6682\u505C");
+        await new Promise((resolve) => window.setTimeout(resolve, 50));
+      }
+      this.assertCurrent();
+      const account = await p.refreshAccount(true);
+      this.assertCurrent();
+      if (!account || account.id !== this.accountId) throw new Error("\u65E0\u6CD5\u786E\u8BA4\u5F53\u524D\u8D26\u53F7\uFF0C\u8BF7\u7A0D\u540E\u518D\u8BD5");
+      const data = objectValue(await p.authorizedRequest("/v1/account/vault-reset/prepare", { method: "POST", body: "{}" }));
+      this.assertCurrent();
+      for (const field of ["storageEpoch", "files", "usedBytes"]) if (!Number.isSafeInteger(data[field]) || Number(data[field]) < 0) throw new Error("\u670D\u52A1\u5668\u8FD4\u56DE\u7684\u6E05\u7A7A\u786E\u8BA4\u4FE1\u606F\u5F02\u5E38");
+      const proof = { confirmationId: stringValue(data.confirmationId), confirmationPhrase: stringValue(data.confirmationPhrase), message: stringValue(data.message), storageEpoch: Number(data.storageEpoch), files: Number(data.files), usedBytes: Number(data.usedBytes) };
+      if (proof.confirmationId.length < 16 || proof.confirmationPhrase !== "\u6E05\u7A7A\u4E91\u7AEF\u7B14\u8BB0" || proof.storageEpoch !== (p.settings.stateStorageEpoch || 0)) throw new Error("\u4ED3\u5E93\u72B6\u6001\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u786E\u8BA4");
+      this.confirmation = proof;
+      return proof;
+    } finally {
+      this.busy = false;
+    }
+  }
+  async confirm(phrase) {
+    this.assertCurrent();
+    const proof = this.confirmation;
+    if (this.busy || !proof || phrase !== proof.confirmationPhrase) throw new Error("\u8BF7\u8F93\u5165\u5B8C\u6574\u7684\u786E\u8BA4\u6587\u5B57");
+    this.busy = true;
+    this.confirmation = void 0;
+    try {
+      const p = this.plugin;
+      const result = objectValue(await p.authorizedRequest("/v1/account/vault-reset/confirm", { method: "POST", body: JSON.stringify({ confirmationId: proof.confirmationId, storageEpoch: proof.storageEpoch, phrase }) }));
+      this.assertCurrent();
+      const account = readAccount(result.account);
+      if (result.ok !== true || account.id !== this.accountId || account.storageEpoch !== proof.storageEpoch + 1 || result.storageEpoch !== account.storageEpoch || account.usedBytes !== 0) throw new Error("\u672A\u80FD\u6838\u5BF9\u6E05\u7A7A\u7ED3\u679C\uFF0C\u8BF7\u5237\u65B0\u8D26\u53F7\u72B6\u6001\u540E\u68C0\u67E5\uFF1B\u81EA\u52A8\u540C\u6B65\u4FDD\u6301\u6682\u505C");
+      reconcileStorageEpoch(p.settings, account);
+      p.settings.account = account;
+      p.settings.autoSync = false;
+      p.digestCache.clear();
+      p.dirtyPaths.clear();
+      p.pendingChanges = true;
+      p.syncedThisSession = false;
+      await p.saveSettings();
+      this.assertCurrent();
+      p.setStatus("\u4E91\u7AEF\u4ED3\u5E93\u5DF2\u6E05\u7A7A\uFF0C\u81EA\u52A8\u540C\u6B65\u5DF2\u6682\u505C\uFF0C\u672C\u5730\u7B14\u8BB0\u5DF2\u4FDD\u7559", "idle");
+    } finally {
+      this.busy = false;
+    }
+  }
+  close() {
+    if (this.closed) return true;
+    if (this.busy) return false;
+    this.closed = true;
+    this.confirmation = void 0;
+    this.plugin.vaultResetting = false;
+    return true;
+  }
+};
+function openVaultReset(plugin) {
+  var _a2, _b;
+  let flow;
+  try {
+    flow = new VaultResetFlow(plugin);
+  } catch (error) {
+    new import_obsidian.Notice(errorMessage(error));
+    return;
+  }
+  const modal = new import_obsidian.Modal(plugin.app), root = modal.contentEl;
+  root.addClass("notecloud-vault-reset");
+  root.createEl("h2", { text: "\u6E05\u7A7A\u4E91\u7AEF\u4ED3\u5E93" });
+  root.createEl("p", { text: "\u5F53\u524D\u8D26\u53F7\uFF1A" + (((_a2 = plugin.settings.account) == null ? void 0 : _a2.displayName) || ((_b = plugin.settings.account) == null ? void 0 : _b.phone) || "\u5DF2\u767B\u5F55\u8D26\u53F7") });
+  root.createEl("p", { text: "\u5C06\u5220\u9664\u6B64\u8D26\u53F7\u670D\u52A1\u7AEF\u4ED3\u5E93\u4E2D\u7684\u5168\u90E8\u7B14\u8BB0\u3001\u9644\u4EF6\u548C\u5386\u53F2\u7248\u672C\uFF0C\u5E76\u79FB\u9664\u76F8\u5173\u5206\u4EAB\u3002\u6B64\u64CD\u4F5C\u65E0\u6CD5\u81EA\u884C\u64A4\u9500\u3002\u8BBE\u5907\u4E2D\u7684\u672C\u5730\u7B14\u8BB0\u3001\u8D26\u53F7\u548C\u5B58\u50A8\u989D\u5EA6\u4F1A\u4FDD\u7559\u3002" });
+  root.createEl("p", { text: "\u8BF7\u5148\u4E0B\u8F7D\u6216\u5907\u4EFD\u9700\u8981\u4FDD\u7559\u7684\u5185\u5BB9\uFF0C\u5E76\u6682\u505C\u5176\u4ED6\u8BBE\u5907\u540C\u6B65\u3002\u7EE7\u7EED\u540E\uFF0C\u672C\u8BBE\u5907\u81EA\u52A8\u540C\u6B65\u4E5F\u4F1A\u6682\u505C\uFF1B\u9700\u8981\u91CD\u65B0\u4E0A\u4F20\u65F6\uFF0C\u8BF7\u5148\u8C03\u6574\u540C\u6B65\u8303\u56F4\uFF0C\u518D\u624B\u52A8\u540C\u6B65\u6216\u5F00\u542F\u81EA\u52A8\u540C\u6B65\u3002" });
+  const details = root.createDiv(), errorEl = root.createEl("p", { attr: { role: "alert" } });
+  let proof, phrase = "";
+  const actions = new import_obsidian.Setting(root);
+  actions.addButton((button) => {
+    button.setButtonText("\u6682\u505C\u540C\u6B65\u5E76\u7EE7\u7EED").onClick(async () => {
+      var _a3;
+      button.setDisabled(true);
+      errorEl.textContent = "";
+      try {
+        if (!proof) {
+          proof = await flow.prepare();
+          details.empty();
+          details.createEl("p", { text: `${proof.files} \u4E2A\u5F53\u524D\u6587\u4EF6\uFF0C\u5408\u8BA1 ${(proof.usedBytes / 1024 / 1024).toFixed(2)} MB\u3002\u81EA\u52A8\u540C\u6B65\u5DF2\u6682\u505C\u3002` });
+          new import_obsidian.Setting(details).setName("\u8F93\u5165\u201C\u6E05\u7A7A\u4E91\u7AEF\u7B14\u8BB0\u201D\u786E\u8BA4").addText((input) => input.setPlaceholder("\u6E05\u7A7A\u4E91\u7AEF\u7B14\u8BB0").onChange((value) => {
+            phrase = value;
+            button.setDisabled(flow.busy || phrase !== (proof == null ? void 0 : proof.confirmationPhrase));
+          }));
+          button.setButtonText("\u786E\u8BA4\u6E05\u7A7A\u4E91\u7AEF\u4ED3\u5E93").setDisabled(true);
+          button.buttonEl.addClass("mod-warning");
+        } else {
+          await flow.confirm(phrase);
+          flow.close();
+          modal.close();
+          (_a3 = plugin.settingsTab) == null ? void 0 : _a3.refreshDisplay();
+          new import_obsidian.Notice("\u4E91\u7AEF\u4ED3\u5E93\u5DF2\u6E05\u7A7A\u3002\u672C\u5730\u7B14\u8BB0\u5DF2\u4FDD\u7559\uFF0C\u81EA\u52A8\u540C\u6B65\u4FDD\u6301\u5173\u95ED\u3002", 12e3);
+        }
+      } catch (error) {
+        proof = void 0;
+        phrase = "";
+        details.empty();
+        errorEl.textContent = errorMessage(error) + "\u3002\u81EA\u52A8\u540C\u6B65\u4FDD\u6301\u6682\u505C\uFF0C\u53EF\u5173\u95ED\u7A97\u53E3\u540E\u68C0\u67E5\u4ED3\u5E93\u72B6\u6001\u3002";
+        button.setButtonText("\u91CD\u65B0\u83B7\u53D6\u786E\u8BA4").setDisabled(false);
+      }
+    });
+  }).addButton((button) => button.setButtonText("\u53D6\u6D88").onClick(() => {
+    if (flow.close()) modal.close();
+  }));
+  const close = modal.close.bind(modal);
+  modal.close = () => {
+    if (flow.close()) close();
+  };
+  modal.onClose = () => {
+    flow.close();
+  };
+  modal.open();
 }
 
 // src/main.ts
 var h = __toESM(require("obsidian"));
 
 // src/community.ts
-var import_obsidian = require("obsidian");
+var import_obsidian2 = require("obsidian");
 
 // node_modules/dompurify/dist/purify.es.mjs
 function _OverloadYield(e, d) {
@@ -4642,7 +4943,7 @@ function updateIcon(plugin) {
   const button = plugin.announcementButton;
   button.hidden = !count;
   button.empty();
-  (0, import_obsidian.setIcon)(button, "bell");
+  (0, import_obsidian2.setIcon)(button, "bell");
   if (count) button.createSpan({ cls: "notecloud-announcement-count", text: String(count) });
   button.toggleClass("has-unread", count > 0);
   button.toggleClass("is-animated", count > 0 && plugin.settings.serviceNotices !== false);
@@ -4683,7 +4984,7 @@ async function deleteAnnouncement(plugin, id) {
   updateIcon(plugin);
 }
 function openAnnouncement(plugin, item) {
-  const modal = new import_obsidian.Modal(plugin.app);
+  const modal = new import_obsidian2.Modal(plugin.app);
   modal.onOpen = () => {
     var _a2;
     (_a2 = modal.modalEl) == null ? void 0 : _a2.addClass("notecloud-announcement-reader");
@@ -4691,17 +4992,17 @@ function openAnnouncement(plugin, item) {
     modal.contentEl.createEl("p", { cls: "notecloud-announcement-meta", text: item.createdAt ? new Date(item.createdAt).toLocaleString() : "" });
     const body = modal.contentEl.createDiv({ cls: "notecloud-announcement-markdown" });
     body.append(announcementFragment(item.message, item.format || "text", plugin.settings.websiteUrl));
-    if (item.linkUrl && /^https:\/\//i.test(item.linkUrl)) new import_obsidian.Setting(modal.contentEl).addButton((button) => button.setButtonText("\u6253\u5F00\u8BE6\u60C5\u94FE\u63A5").onClick(() => {
+    if (item.linkUrl && /^https:\/\//i.test(item.linkUrl)) new import_obsidian2.Setting(modal.contentEl).addButton((button) => button.setButtonText("\u6253\u5F00\u8BE6\u60C5\u94FE\u63A5").onClick(() => {
       window.open(item.linkUrl, "_blank", "noopener,noreferrer");
     }));
-    new import_obsidian.Setting(modal.contentEl).addButton((button) => button.setButtonText("\u5173\u95ED").onClick(() => modal.close()));
+    new import_obsidian2.Setting(modal.contentEl).addButton((button) => button.setButtonText("\u5173\u95ED").onClick(() => modal.close()));
   };
   modal.onClose = () => modal.contentEl.empty();
   modal.open();
 }
 function renderItem(plugin, container, item, refresh) {
   const read = (plugin.settings.readAnnouncementIds || []).includes(item.id);
-  const setting = new import_obsidian.Setting(container).setName(item.title).setDesc(`${item.createdAt ? new Date(item.createdAt).toLocaleString() : ""} \xB7 ${read ? "\u5DF2\u8BFB" : "\u672A\u8BFB"}${item.active === false ? " \xB7 \u5386\u53F2\u516C\u544A" : ""}`);
+  const setting = new import_obsidian2.Setting(container).setName(item.title).setDesc(`${item.createdAt ? new Date(item.createdAt).toLocaleString() : ""} \xB7 ${read ? "\u5DF2\u8BFB" : "\u672A\u8BFB"}${item.active === false ? " \xB7 \u5386\u53F2\u516C\u544A" : ""}`);
   setting.settingEl.toggleClass("notecloud-announcement-unread", !read);
   setting.settingEl.toggleClass("notecloud-announcement-read", read);
   setting.addButton((button) => button.setButtonText("\u67E5\u770B").onClick(() => openAnnouncement(plugin, item)));
@@ -4714,13 +5015,13 @@ function renderItem(plugin, container, item, refresh) {
       refresh();
       (_a2 = plugin.settingsTab) == null ? void 0 : _a2.display();
     } catch (e) {
-      new import_obsidian.Notice("\u516C\u544A\u72B6\u6001\u4FDD\u5B58\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5");
+      new import_obsidian2.Notice("\u516C\u544A\u72B6\u6001\u4FDD\u5B58\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5");
       button.setDisabled(false);
     }
   }));
 }
 function openAnnouncements(plugin) {
-  const modal = new import_obsidian.Modal(plugin.app);
+  const modal = new import_obsidian2.Modal(plugin.app);
   const render = () => {
     var _a2;
     modal.contentEl.empty();
@@ -4741,33 +5042,33 @@ function renderTop(plugin, container) {
   box.createEl("h3", { text: `\u672A\u8BFB\u516C\u544A\uFF08${items.length}\uFF09` });
   for (const item of items.slice(0, 3)) renderItem(plugin, box, item, () => {
   });
-  if (items.length > 3) new import_obsidian.Setting(box).setName("\u8FD8\u6709\u672A\u8BFB\u516C\u544A").addButton((button) => button.setButtonText("\u67E5\u770B\u5168\u90E8").onClick(() => openAnnouncements(plugin)));
+  if (items.length > 3) new import_obsidian2.Setting(box).setName("\u8FD8\u6709\u672A\u8BFB\u516C\u544A").addButton((button) => button.setButtonText("\u67E5\u770B\u5168\u90E8").onClick(() => openAnnouncements(plugin)));
 }
 function renderHistory(plugin, container) {
-  new import_obsidian.Setting(container).setName("\u516C\u544A\u680F").setDesc("\u67E5\u770B\u6700\u8FD1 10 \u6761\u5386\u53F2\u516C\u544A\uFF0C\u5DF2\u8BFB\u5185\u5BB9\u4FDD\u7559\u5728\u8FD9\u91CC\u3002").addButton((button) => button.setButtonText("\u6253\u5F00\u516C\u544A\u680F").onClick(() => openAnnouncements(plugin)));
+  new import_obsidian2.Setting(container).setName("\u516C\u544A\u680F").setDesc("\u67E5\u770B\u6700\u8FD1 10 \u6761\u5386\u53F2\u516C\u544A\uFF0C\u5DF2\u8BFB\u5185\u5BB9\u4FDD\u7559\u5728\u8FD9\u91CC\u3002").addButton((button) => button.setButtonText("\u6253\u5F00\u516C\u544A\u680F").onClick(() => openAnnouncements(plugin)));
 }
 function openFeedback(plugin) {
-  const modal = new import_obsidian.Modal(plugin.app);
+  const modal = new import_obsidian2.Modal(plugin.app);
   let title = "", message = "";
   modal.onOpen = () => {
     modal.contentEl.createEl("h2", { text: "\u610F\u89C1\u53CD\u9988" });
     modal.contentEl.createEl("p", { text: "\u53CD\u9988\u6B63\u6587\u4F1A\u63D0\u4F9B\u7ED9\u7BA1\u7406\u5458\uFF1B\u4E0D\u4F1A\u81EA\u52A8\u9644\u5E26\u7B14\u8BB0\u6216\u65E5\u5FD7\u3002\u8BF7\u52FF\u586B\u5199\u5BC6\u7801\u3001\u5151\u6362\u7801\u3001\u79C1\u5BC6\u94FE\u63A5\u6216\u4E0D\u613F\u62AB\u9732\u7684\u7B14\u8BB0\u3002" });
-    new import_obsidian.Setting(modal.contentEl).setName("\u6807\u9898").addText((input) => input.setPlaceholder("\u7B80\u8981\u63CF\u8FF0\u95EE\u9898\u6216\u5EFA\u8BAE").onChange((value) => title = value));
-    new import_obsidian.Setting(modal.contentEl).setName("\u5185\u5BB9").addTextArea((input) => {
+    new import_obsidian2.Setting(modal.contentEl).setName("\u6807\u9898").addText((input) => input.setPlaceholder("\u7B80\u8981\u63CF\u8FF0\u95EE\u9898\u6216\u5EFA\u8BAE").onChange((value) => title = value));
+    new import_obsidian2.Setting(modal.contentEl).setName("\u5185\u5BB9").addTextArea((input) => {
       input.inputEl.rows = 6;
       input.inputEl.maxLength = 4e3;
       input.onChange((value) => message = value);
     });
-    new import_obsidian.Setting(modal.contentEl).addButton((button) => button.setButtonText("\u67E5\u770B\u56DE\u590D\u4E0E\u5956\u52B1").onClick(() => void plugin.openWebPortal("/feedback"))).addButton((button) => button.setButtonText("\u63D0\u4EA4\u53CD\u9988").setCta().onClick(async () => {
-      if (title.trim().length < 2 || message.trim().length < 5) return void new import_obsidian.Notice("\u8BF7\u586B\u5199\u81F3\u5C11 2 \u5B57\u6807\u9898\u548C 5 \u5B57\u53CD\u9988\u5185\u5BB9");
-      if (!plugin.settings.token && !plugin.settings.refreshToken) return void new import_obsidian.Notice("\u8BF7\u5148\u5728\u63D2\u4EF6\u8BBE\u7F6E\u4E2D\u767B\u5F55");
+    new import_obsidian2.Setting(modal.contentEl).addButton((button) => button.setButtonText("\u67E5\u770B\u56DE\u590D\u4E0E\u5956\u52B1").onClick(() => void plugin.openWebPortal("/feedback"))).addButton((button) => button.setButtonText("\u63D0\u4EA4\u53CD\u9988").setCta().onClick(async () => {
+      if (title.trim().length < 2 || message.trim().length < 5) return void new import_obsidian2.Notice("\u8BF7\u586B\u5199\u81F3\u5C11 2 \u5B57\u6807\u9898\u548C 5 \u5B57\u53CD\u9988\u5185\u5BB9");
+      if (!plugin.settings.token && !plugin.settings.refreshToken) return void new import_obsidian2.Notice("\u8BF7\u5148\u5728\u63D2\u4EF6\u8BBE\u7F6E\u4E2D\u767B\u5F55");
       button.setDisabled(true);
       try {
         await plugin.authorizedRequest("/v1/feedback", { method: "POST", body: JSON.stringify({ title: title.trim(), message: message.trim(), source: "plugin" }) });
-        new import_obsidian.Notice("\u53CD\u9988\u5DF2\u63D0\u4EA4\u3002\u53EF\u4EE5\u5728\u7F51\u9875\u610F\u89C1\u53CD\u9988\u4E2D\u67E5\u770B\u56DE\u590D\u548C\u989D\u5EA6\u5956\u52B1\u3002");
+        new import_obsidian2.Notice("\u53CD\u9988\u5DF2\u63D0\u4EA4\u3002\u53EF\u4EE5\u5728\u7F51\u9875\u610F\u89C1\u53CD\u9988\u4E2D\u67E5\u770B\u56DE\u590D\u548C\u989D\u5EA6\u5956\u52B1\u3002");
         modal.close();
       } catch (error) {
-        new import_obsidian.Notice(error instanceof Error ? error.message : "\u63D0\u4EA4\u5931\u8D25");
+        new import_obsidian2.Notice(error instanceof Error ? error.message : "\u63D0\u4EA4\u5931\u8D25");
       } finally {
         button.setDisabled(false);
       }
@@ -4865,7 +5166,7 @@ var AccountRefresh = class {
 };
 
 // src/renewal.ts
-var import_obsidian2 = require("obsidian");
+var import_obsidian3 = require("obsidian");
 var shownQuotaNotice = /* @__PURE__ */ new WeakMap();
 function currentNotice(plugin) {
   const settings2 = plugin.settings, account = settings2.account;
@@ -4880,7 +5181,7 @@ function renderCard(plugin, container) {
   if (!notice) return;
   container.createEl("h3", { text: "\u7EED\u8D39\u63D0\u9192 \xB7 " + notice.title });
   container.createEl("p", { text: notice.message });
-  new import_obsidian2.Setting(container).addButton((button) => button.setButtonText("\u67E5\u770B\u7EED\u8D39\u4E0E\u8BB0\u5F55").setCta().onClick(() => void plugin.openWebPortal("/billing"))).addButton((button) => button.setButtonText("\u5237\u65B0\u72B6\u6001").onClick(() => void plugin.refreshAccount(true)));
+  new import_obsidian3.Setting(container).addButton((button) => button.setButtonText("\u67E5\u770B\u7EED\u8D39\u4E0E\u8BB0\u5F55").setCta().onClick(() => void plugin.openWebPortal("/billing"))).addButton((button) => button.setButtonText("\u5237\u65B0\u72B6\u6001").onClick(() => void plugin.refreshAccount(true)));
 }
 function update(plugin) {
   var _a2, _b;
@@ -4894,7 +5195,7 @@ function update(plugin) {
   const button = plugin.renewalButton;
   button.hidden = !notice;
   button.empty();
-  (0, import_obsidian2.setIcon)(button, "credit-card");
+  (0, import_obsidian3.setIcon)(button, "credit-card");
   button.createSpan({ text: "\u7EED\u8D39" });
   button.toggleClass("is-critical", (notice == null ? void 0 : notice.level) === "critical");
   button.toggleClass("is-animated", !!notice && plugin.settings.renewalNoticeAnimation !== false);
@@ -4914,25 +5215,25 @@ function renderTop2(plugin, container) {
   renderCard(plugin, plugin.renewalTop);
 }
 function open(plugin) {
-  const modal = new import_obsidian2.Modal(plugin.app);
+  const modal = new import_obsidian3.Modal(plugin.app);
   modal.onOpen = () => {
     modal.contentEl.createEl("h2", { text: "\u7A7A\u95F4\u4E0E\u7EED\u8D39" });
     const notice = currentNotice(plugin), account = plugin.settings.account;
     modal.contentEl.createEl("p", { text: (notice == null ? void 0 : notice.message) || "\u5F53\u524D\u65E0\u9700\u7EED\u8D39\u3002\u6C38\u4E45\u989D\u5EA6\u53EF\u7EE7\u7EED\u4F7F\u7528\uFF0C\u4ED8\u8D39\u6269\u5BB9\u5230\u671F\u540E\u4EC5\u5728\u8D85\u51FA\u6C38\u4E45\u989D\u5EA6\u65F6\u6682\u505C\u540C\u6B65\u3002" });
     if (account == null ? void 0 : account.subscription) modal.contentEl.createEl("p", { text: "\u6269\u5BB9\u5230\u671F\u65F6\u95F4\uFF1A" + new Date(account.subscription.expiresAt).toLocaleString() });
     modal.contentEl.createEl("p", { text: "\u76EE\u524D\u7531\u7BA1\u7406\u5458\u624B\u52A8\u767B\u8BB0\u7EED\u8D39\u3002\u529E\u7406\u540E\u8FD4\u56DE\u63D2\u4EF6\uFF0C\u72B6\u6001\u4F1A\u81EA\u52A8\u5237\u65B0\uFF1B\u4E5F\u53EF\u4EE5\u70B9\u51FB\u5237\u65B0\u72B6\u6001\u3002" });
-    new import_obsidian2.Setting(modal.contentEl).addButton((button) => button.setButtonText("\u67E5\u770B\u8BB0\u5F55 / \u8054\u7CFB\u7BA1\u7406\u5458").setCta().onClick(() => void plugin.openWebPortal("/billing"))).addButton((button) => button.setButtonText("\u5237\u65B0\u72B6\u6001").onClick(async () => {
+    new import_obsidian3.Setting(modal.contentEl).addButton((button) => button.setButtonText("\u67E5\u770B\u8BB0\u5F55 / \u8054\u7CFB\u7BA1\u7406\u5458").setCta().onClick(() => void plugin.openWebPortal("/billing"))).addButton((button) => button.setButtonText("\u5237\u65B0\u72B6\u6001").onClick(async () => {
       await plugin.refreshAccount(true);
       modal.contentEl.empty();
       void modal.onOpen();
     }));
-    if (account == null ? void 0 : account.quotaRecovery) new import_obsidian2.Setting(modal.contentEl).addButton((button) => button.setButtonText("\u4ED8\u8D39\u6269\u5BB9").setCta().onClick(() => void plugin.openWebPortal("/billing"))).addButton((button) => button.setButtonText("\u6E05\u7A7A\u4E91\u7AEF\u7B14\u8BB0\u540E\u91CD\u65B0\u4E0A\u4F20").onClick(() => void plugin.openWebPortal("/billing?action=reset-vault")));
+    if (account == null ? void 0 : account.quotaRecovery) new import_obsidian3.Setting(modal.contentEl).addButton((button) => button.setButtonText("\u4ED8\u8D39\u6269\u5BB9").setCta().onClick(() => void plugin.openWebPortal("/billing"))).addButton((button) => button.setButtonText("\u6E05\u7A7A\u4E91\u7AEF\u7B14\u8BB0\u540E\u91CD\u65B0\u4E0A\u4F20").onClick(() => void plugin.openWebPortal("/billing?action=reset-vault")));
   };
   modal.open();
 }
 function settings(plugin, container) {
-  new import_obsidian2.Setting(container).setName("\u7EED\u8D39\u4E0E\u670D\u52A1\u671F\u9650").setDesc("\u7EED\u8D39\u63D0\u9192\u72EC\u7ACB\u4E8E\u516C\u544A\u3002\u6C38\u4E45\u514D\u8D39\u989D\u5EA6\u5185\u53EF\u7EE7\u7EED\u540C\u6B65\uFF1B\u6269\u5BB9\u5230\u671F\u4E14\u8D85\u989D\u65F6\u6682\u505C\u540C\u6B65\uFF0C\u4ECD\u53EF\u5728\u7F51\u9875\u6D4F\u89C8\u548C\u4E0B\u8F7D\u3002").addButton((button) => button.setButtonText("\u7EED\u8D39\u8BB0\u5F55").onClick(() => void plugin.openWebPortal("/billing")));
-  new import_obsidian2.Setting(container).setName("\u7EED\u8D39\u63D0\u9192\u52A8\u753B").setDesc("\u63A7\u5236\u53F3\u4E0B\u89D2\u72EC\u7ACB\u7EED\u8D39\u56FE\u6807\u7684\u52A8\u753B\uFF0C\u4E0D\u5F71\u54CD\u516C\u544A\uFF1B\u5173\u95ED\u52A8\u753B\u540E\u4ECD\u663E\u793A\u5F53\u524D\u63D0\u9192\u3002").addToggle((toggle) => toggle.setValue(plugin.settings.renewalNoticeAnimation !== false).onChange(async (value) => {
+  new import_obsidian3.Setting(container).setName("\u7EED\u8D39\u4E0E\u670D\u52A1\u671F\u9650").setDesc("\u7EED\u8D39\u63D0\u9192\u72EC\u7ACB\u4E8E\u516C\u544A\u3002\u6C38\u4E45\u514D\u8D39\u989D\u5EA6\u5185\u53EF\u7EE7\u7EED\u540C\u6B65\uFF1B\u6269\u5BB9\u5230\u671F\u4E14\u8D85\u989D\u65F6\u6682\u505C\u540C\u6B65\uFF0C\u4ECD\u53EF\u5728\u7F51\u9875\u6D4F\u89C8\u548C\u4E0B\u8F7D\u3002").addButton((button) => button.setButtonText("\u7EED\u8D39\u8BB0\u5F55").onClick(() => void plugin.openWebPortal("/billing")));
+  new import_obsidian3.Setting(container).setName("\u7EED\u8D39\u63D0\u9192\u52A8\u753B").setDesc("\u63A7\u5236\u53F3\u4E0B\u89D2\u72EC\u7ACB\u7EED\u8D39\u56FE\u6807\u7684\u52A8\u753B\uFF0C\u4E0D\u5F71\u54CD\u516C\u544A\uFF1B\u5173\u95ED\u52A8\u753B\u540E\u4ECD\u663E\u793A\u5F53\u524D\u63D0\u9192\u3002").addToggle((toggle) => toggle.setValue(plugin.settings.renewalNoticeAnimation !== false).onChange(async (value) => {
     plugin.settings.renewalNoticeAnimation = value;
     await plugin.saveSettings();
     update(plugin);
@@ -5082,7 +5383,7 @@ function mergeLines(c, t, e, options2) {
 }
 
 // src/vault-scope.ts
-var import_obsidian3 = require("obsidian");
+var import_obsidian4 = require("obsidian");
 var unavailable = () => new Error("\u540C\u6B65\u6587\u4EF6\u5939\u6682\u4E0D\u53EF\u7528\uFF0C\u4E3A\u9632\u6B62\u8BEF\u5220\u5DF2\u6682\u505C\u672C\u6B21\u540C\u6B65\u3002\u8BF7\u6062\u590D\u6587\u4EF6\u5939\u6216\u91CD\u65B0\u9009\u62E9\u540C\u6B65\u8303\u56F4\u540E\u91CD\u8BD5\u3002");
 function walk(vault, starts, recursive, root, includeFiles = true) {
   const files = /* @__PURE__ */ new Map(), folders = /* @__PURE__ */ new Map();
@@ -5097,14 +5398,14 @@ function walk(vault, starts, recursive, root, includeFiles = true) {
     const prefix = isRoot ? "" : folder.path + "/";
     const children = folder.children.slice();
     for (const child of children) {
-      if (!(child instanceof import_obsidian3.TFile) && !(child instanceof import_obsidian3.TFolder)) throw unavailable();
-      if (child instanceof import_obsidian3.TFile && !includeFiles) continue;
-      if (child instanceof import_obsidian3.TFolder && !recursive) continue;
+      if (!(child instanceof import_obsidian4.TFile) && !(child instanceof import_obsidian4.TFolder)) throw unavailable();
+      if (child instanceof import_obsidian4.TFile && !includeFiles) continue;
+      if (child instanceof import_obsidian4.TFolder && !recursive) continue;
       if (!child.path.startsWith(prefix)) throw unavailable();
       const relative = child.path.slice(prefix.length);
       if (!relative || relative.includes("/")) throw unavailable();
       if (!safeSyncPath(child.path, vault.configDir)) continue;
-      if (child instanceof import_obsidian3.TFile) files.set(child.path, child);
+      if (child instanceof import_obsidian4.TFile) files.set(child.path, child);
       else if (recursive) {
         folders.set(child.path, child);
         pending.push(child);
@@ -5121,14 +5422,14 @@ function scopedVaultFiles(vault, scope) {
   for (const selectedPath of selected) {
     if (selectedPath === "/") {
       const root = vault.getRoot();
-      if (!(root instanceof import_obsidian3.TFolder)) throw unavailable();
+      if (!(root instanceof import_obsidian4.TFolder)) throw unavailable();
       for (const [path, file] of walk(vault, [root], false, root).files) files.set(path, file);
       continue;
     }
     if (!safeSyncPath(selectedPath, vault.configDir)) throw unavailable();
     if (selected.some((parent) => parent !== selectedPath && parent !== "/" && selectedPath.startsWith(parent + "/"))) continue;
     const folder = vault.getAbstractFileByPath(selectedPath);
-    if (!(folder instanceof import_obsidian3.TFolder) || folder.path !== selectedPath) throw unavailable();
+    if (!(folder instanceof import_obsidian4.TFolder) || folder.path !== selectedPath) throw unavailable();
     starts.push(folder);
   }
   for (const [path, file] of walk(vault, starts, true).files) files.set(path, file);
@@ -5136,17 +5437,17 @@ function scopedVaultFiles(vault, scope) {
 }
 function selectableVaultFolders(vault) {
   const root = vault.getRoot();
-  if (!(root instanceof import_obsidian3.TFolder)) throw unavailable();
+  if (!(root instanceof import_obsidian4.TFolder)) throw unavailable();
   return [...walk(vault, [root], true, root, false).folders.values()];
 }
 
 // src/folder-scope-ui.ts
-var import_obsidian4 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 var childrenSequence = 0;
 function renderFolderScope(container, folders, state, persist) {
   const section = container.createDiv({ cls: "notecloud-folder-scope" });
   const controls = [];
-  new import_obsidian4.Setting(section).setName("\u540C\u6B65\u6240\u6709\u6587\u4EF6\u5939").setClass("notecloud-all-folders").addToggle((toggle) => {
+  new import_obsidian5.Setting(section).setName("\u540C\u6B65\u6240\u6709\u6587\u4EF6\u5939").setClass("notecloud-all-folders").addToggle((toggle) => {
     toggle.toggleEl.setAttribute("aria-label", "\u540C\u6B65\u6240\u6709\u6587\u4EF6\u5939");
     toggle.setValue(state.syncAllFolders).onChange(async (value) => {
       state.syncAllFolders = value;
@@ -5164,7 +5465,7 @@ function renderFolderScope(container, folders, state, persist) {
       await persist();
     });
   });
-  addSelection(new import_obsidian4.Setting(section).setName("\u6839\u76EE\u5F55\u6587\u4EF6").setDesc("\u4EC5\u540C\u6B65\u4ED3\u5E93\u6839\u76EE\u5F55\u4E0B\u7684\u6587\u4EF6\uFF0C\u4E0D\u5305\u62EC\u5B50\u6587\u4EF6\u5939\u3002").setClass("notecloud-root-files"), "/", "\u540C\u6B65\u6839\u76EE\u5F55\u6587\u4EF6");
+  addSelection(new import_obsidian5.Setting(section).setName("\u6839\u76EE\u5F55\u6587\u4EF6").setDesc("\u4EC5\u540C\u6B65\u4ED3\u5E93\u6839\u76EE\u5F55\u4E0B\u7684\u6587\u4EF6\uFF0C\u4E0D\u5305\u62EC\u5B50\u6587\u4EF6\u5939\u3002").setClass("notecloud-root-files"), "/", "\u540C\u6B65\u6839\u76EE\u5F55\u6587\u4EF6");
   section.createEl("p", { cls: "notecloud-folder-help", text: "\u52FE\u9009\u6587\u4EF6\u5939\u4F1A\u540C\u6B65\u5176\u5168\u90E8\u5B50\u6587\u4EF6\u5939\uFF1B\u5C55\u5F00\u6216\u6536\u8D77\u53EA\u5F71\u54CD\u663E\u793A\uFF0C\u4E0D\u6539\u53D8\u540C\u6B65\u9009\u62E9\u3002" });
   const nodes = /* @__PURE__ */ new Map();
   for (const folder of folders) {
@@ -5210,7 +5511,7 @@ function renderFolderScope(container, folders, state, persist) {
     for (const node of children) {
       const item = list2.createEl("li", { cls: "notecloud-folder-node" });
       item.dataset.folderPath = node.path;
-      const setting = new import_obsidian4.Setting(item).setName(node.name).setClass("notecloud-folder-row");
+      const setting = new import_obsidian5.Setting(item).setName(node.name).setClass("notecloud-folder-row");
       setting.nameEl.title = node.path;
       addSelection(setting, node.path, `\u540C\u6B65\u6587\u4EF6\u5939\uFF1A${node.path}`);
       const view = { node, childrenRendered: false };
@@ -5260,7 +5561,7 @@ function renderFolderScope(container, folders, state, persist) {
     group.createEl("h4", { text: "\u4E0D\u53EF\u7528\u7684\u5DF2\u9009\u6587\u4EF6\u5939" });
     group.createEl("p", { cls: "notecloud-folder-help", text: "\u8FD9\u4E9B\u76EE\u5F55\u53EF\u80FD\u5DF2\u5220\u9664\u3001\u6539\u540D\u6216\u6682\u65F6\u4E0D\u53EF\u7528\u3002\u6309\u6240\u9009\u6587\u4EF6\u5939\u540C\u6B65\u65F6\u4F1A\u5B89\u5168\u6682\u505C\uFF1B\u82E5\u53EA\u662F\u786C\u76D8\u6682\u65F6\u65AD\u5F00\uFF0C\u8BF7\u6062\u590D\u76EE\u5F55\u540E\u91CD\u65B0\u6253\u5F00\u8BBE\u7F6E\u3002\u4E0D\u4F1A\u81EA\u52A8\u6E05\u9664\u5DF2\u6709\u9009\u62E9\u3002" });
     for (const path of unavailable2) {
-      const setting = new import_obsidian4.Setting(group).setName(path || "\uFF08\u7A7A\u8DEF\u5F84\uFF09").setDesc("\u53D6\u6D88\u53EA\u79FB\u9664\u8BE5\u76EE\u5F55\u7684\u540C\u6B65\u9009\u62E9\uFF0C\u4E0D\u5220\u9664\u4E91\u7AEF\u7B14\u8BB0\u3002\u76EE\u5F55\u6062\u590D\u540E\u53EF\u91CD\u65B0\u9009\u62E9\u3002").setClass("notecloud-unavailable-folder");
+      const setting = new import_obsidian5.Setting(group).setName(path || "\uFF08\u7A7A\u8DEF\u5F84\uFF09").setDesc("\u53D6\u6D88\u53EA\u79FB\u9664\u8BE5\u76EE\u5F55\u7684\u540C\u6B65\u9009\u62E9\uFF0C\u4E0D\u5220\u9664\u4E91\u7AEF\u7B14\u8BB0\u3002\u76EE\u5F55\u6062\u590D\u540E\u53EF\u91CD\u65B0\u9009\u62E9\u3002").setClass("notecloud-unavailable-folder");
       setting.settingEl.dataset.folderPath = path;
       let cancelled = false;
       setting.addButton((button) => {
@@ -5373,150 +5674,6 @@ var AutoSyncCoordinator = class {
     });
   }
 };
-
-// src/plugin-types.ts
-function objectValue(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("\u670D\u52A1\u5668\u8FD4\u56DE\u7684\u6570\u636E\u683C\u5F0F\u5F02\u5E38");
-  return value;
-}
-function stringValue(value) {
-  if (typeof value !== "string") throw new Error("\u670D\u52A1\u5668\u8FD4\u56DE\u7684\u6587\u5B57\u5B57\u6BB5\u5F02\u5E38");
-  return value;
-}
-function numberValue(value) {
-  if (typeof value !== "number" || !Number.isFinite(value)) throw new Error("\u670D\u52A1\u5668\u8FD4\u56DE\u7684\u6570\u5B57\u5B57\u6BB5\u5F02\u5E38");
-  return value;
-}
-var optionalString = (value) => typeof value === "string" ? value : void 0;
-var optionalNumber = (value) => typeof value === "number" && Number.isFinite(value) ? value : void 0;
-var optionalBoolean = (value) => typeof value === "boolean" ? value : void 0;
-var strings = (value) => Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
-function readAccount(value) {
-  const data = objectValue(value);
-  const notice = data.renewalNotice ? objectValue(data.renewalNotice) : void 0;
-  const subscription = data.subscription ? objectValue(data.subscription) : void 0;
-  return {
-    ...data,
-    id: stringValue(data.id),
-    usedBytes: numberValue(data.usedBytes),
-    quotaBytes: numberValue(data.quotaBytes),
-    displayName: optionalString(data.displayName),
-    phone: optionalString(data.phone),
-    customerStage: optionalString(data.customerStage),
-    syncWritesAllowed: optionalBoolean(data.syncWritesAllowed),
-    announcementNotificationIds: Array.isArray(data.announcementNotificationIds) ? strings(data.announcementNotificationIds) : void 0,
-    renewalNotice: notice ? { title: stringValue(notice.title), message: stringValue(notice.message), level: optionalString(notice.level) } : void 0,
-    subscription: subscription ? { ...subscription, expiresAt: stringValue(subscription.expiresAt) } : void 0
-  };
-}
-function readTokens(value) {
-  const data = objectValue(value);
-  return { ...readAccount(value), token: stringValue(data.token), refreshToken: stringValue(data.refreshToken), expiresIn: numberValue(data.expiresIn) };
-}
-function readAnnouncement(value) {
-  const data = objectValue(value);
-  return { id: stringValue(data.id), title: stringValue(data.title), message: stringValue(data.message), createdAt: optionalString(data.createdAt), format: data.format === "markdown" ? "markdown" : "text", linkUrl: optionalString(data.linkUrl), active: optionalBoolean(data.active), notify: optionalBoolean(data.notify) };
-}
-function readStatus(value) {
-  const data = objectValue(value);
-  return { ...data, latestVersion: stringValue(data.latestVersion), releaseUrl: stringValue(data.releaseUrl), maxUploadBytes: optionalNumber(data.maxUploadBytes), maxChunkSize: optionalNumber(data.maxChunkSize), fastUploadBytes: optionalNumber(data.fastUploadBytes), announcements: Array.isArray(data.announcements) ? data.announcements.map(readAnnouncement) : [] };
-}
-function readRemoteFile(value) {
-  const data = objectValue(value);
-  return { path: stringValue(data.path), revision: stringValue(data.revision), size: numberValue(data.size) };
-}
-function readManifest(value) {
-  const data = objectValue(value);
-  if (!Array.isArray(data.files)) throw new Error("\u540C\u6B65\u6587\u4EF6\u6E05\u5355\u683C\u5F0F\u5F02\u5E38");
-  return { files: data.files.map(readRemoteFile), syncWritesAllowed: optionalBoolean(data.syncWritesAllowed) };
-}
-function readUpload(value, requireSession = true) {
-  const data = objectValue(value);
-  return { uploadId: requireSession ? stringValue(data.uploadId) : "", complete: data.complete === true, chunkSize: optionalNumber(data.chunkSize) || 0, record: data.record ? readRemoteFile(data.record) : void 0 };
-}
-function readPolicy(value) {
-  const data = objectValue(value);
-  return { passwordHint: stringValue(data.passwordHint), emailCodeLength: numberValue(data.emailCodeLength), emailCodeExpiresMinutes: numberValue(data.emailCodeExpiresMinutes) };
-}
-function errorMessage(value, fallback = "\u540C\u6B65\u5931\u8D25") {
-  if (value instanceof Error && value.message) return value.message;
-  if (value && typeof value === "object" && "message" in value && typeof value.message === "string") return value.message || fallback;
-  return fallback;
-}
-function errorStatus(value) {
-  return value && typeof value === "object" && "status" in value && typeof value.status === "number" ? value.status : 0;
-}
-function retryAfter(value) {
-  return value && typeof value === "object" && "retryAfterMs" in value && typeof value.retryAfterMs === "number" ? value.retryAfterMs : 0;
-}
-function cachedValue(value, decode) {
-  try {
-    return decode(value);
-  } catch (e) {
-    return void 0;
-  }
-}
-function splitLinesAfterLF(value) {
-  if (!value) return [""];
-  const lines = [];
-  let offset = 0;
-  for (let position = 0; position < value.length; position++) {
-    if (value.charCodeAt(position) === 10) {
-      lines.push(value.slice(offset, position + 1));
-      offset = position + 1;
-    }
-  }
-  if (offset < value.length) lines.push(value.slice(offset));
-  return lines;
-}
-function readSettings(value, defaults) {
-  var _a2, _b, _c, _d, _e;
-  if (!value || typeof value !== "object" || Array.isArray(value)) return { ...defaults, state: {}, selectedFolders: [], seenAnnouncementIds: [] };
-  const data = objectValue(value);
-  const state = {};
-  if (data.state && typeof data.state === "object" && !Array.isArray(data.state)) for (const [path, raw] of Object.entries(data.state)) {
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
-    const entry = objectValue(raw);
-    if (typeof entry.hash === "string" && typeof entry.remoteRevision === "string") state[path] = { hash: entry.hash, remoteRevision: entry.remoteRevision, baseContent: optionalString(entry.baseContent) };
-  }
-  const pending = data.pendingAuth && typeof data.pendingAuth === "object" && !Array.isArray(data.pendingAuth) ? objectValue(data.pendingAuth) : void 0;
-  return {
-    ...defaults,
-    ...data,
-    serverUrl: optionalString(data.serverUrl) || defaults.serverUrl,
-    websiteUrl: optionalString(data.websiteUrl) || defaults.websiteUrl,
-    phone: optionalString(data.phone) || "",
-    password: "",
-    quotaCode: optionalString(data.quotaCode) || "",
-    token: optionalString(data.token) || "",
-    refreshToken: optionalString(data.refreshToken) || "",
-    tokenExpiresAt: optionalNumber(data.tokenExpiresAt) || 0,
-    pendingAuth: pending && typeof pending.verifier === "string" && typeof pending.state === "string" && typeof pending.createdAt === "number" ? { verifier: pending.verifier, state: pending.state, createdAt: pending.createdAt } : void 0,
-    state,
-    stateAccountId: optionalString(data.stateAccountId),
-    accountSwitchPending: optionalBoolean(data.accountSwitchPending),
-    account: data.account ? cachedValue(data.account, readAccount) : void 0,
-    syncAllFolders: (_a2 = optionalBoolean(data.syncAllFolders)) != null ? _a2 : defaults.syncAllFolders,
-    selectedFolders: strings(data.selectedFolders),
-    autoSync: (_b = optionalBoolean(data.autoSync)) != null ? _b : defaults.autoSync,
-    syncIntervalMinutes: (_c = optionalNumber(data.syncIntervalMinutes)) != null ? _c : defaults.syncIntervalMinutes,
-    maxFileSizeMB: (_d = optionalNumber(data.maxFileSizeMB)) != null ? _d : defaults.maxFileSizeMB,
-    conflictStrategy: data.conflictStrategy === "local" || data.conflictStrategy === "cloud" ? data.conflictStrategy : "keep-both",
-    serviceNotices: (_e = optionalBoolean(data.serviceNotices)) != null ? _e : defaults.serviceNotices,
-    renewalNoticeAnimation: optionalBoolean(data.renewalNoticeAnimation),
-    lastServiceCheckAt: optionalNumber(data.lastServiceCheckAt) || 0,
-    seenAnnouncementIds: strings(data.seenAnnouncementIds),
-    readAnnouncementIds: strings(data.readAnnouncementIds),
-    deletedAnnouncementIds: strings(data.deletedAnnouncementIds),
-    announcementHistory: Array.isArray(data.announcementHistory) ? data.announcementHistory.flatMap((item) => {
-      const parsed = cachedValue(item, readAnnouncement);
-      return parsed ? [parsed] : [];
-    }) : void 0,
-    notifiedUpdateVersion: optionalString(data.notifiedUpdateVersion) || "",
-    serviceStatus: data.serviceStatus ? cachedValue(data.serviceStatus, readStatus) : void 0,
-    lastSyncAt: optionalString(data.lastSyncAt)
-  };
-}
 
 // src/official-entry.ts
 var OFFICIAL_ENTRY_URL = "https://notecloud.cloud";
@@ -5717,6 +5874,7 @@ var NoteCloudPlugin = class extends h.Plugin {
     __publicField(this, "syncedThisSession", false);
     __publicField(this, "pendingChanges", true);
     __publicField(this, "confirmingAccountSync", false);
+    __publicField(this, "vaultResetting", false);
     __publicField(this, "lastServiceAttemptAt", 0);
     __publicField(this, "lastAccountRefreshAt", 0);
     __publicField(this, "lastAccountRefreshError", "");
@@ -5807,6 +5965,7 @@ var NoteCloudPlugin = class extends h.Plugin {
     update(this);
     this.initializeAccountRefresh();
     this.addCommand({ id: "cancel-sync", name: "\u505C\u6B62\u5F53\u524D\u540C\u6B65", callback: () => this.cancelSync() });
+    this.addCommand({ id: "clear-cloud-vault", name: "\u6E05\u7A7A\u4E91\u7AEF\u4ED3\u5E93", callback: () => openVaultReset(this) });
     this.addCommand({ id: "open-announcements", name: "\u67E5\u770B\u516C\u544A", callback: () => openAnnouncements(this) });
     this.addCommand({ id: "open-renewal", name: "\u67E5\u770B\u7EED\u8D39\u4E0E\u670D\u52A1\u671F\u9650", callback: () => open(this) });
     this.addCommand({ id: "send-feedback", name: "\u610F\u89C1\u53CD\u9988", callback: () => openFeedback(this) });
@@ -5845,7 +6004,7 @@ var NoteCloudPlugin = class extends h.Plugin {
   }
   autoSyncAllowed() {
     var _a2;
-    return this.autoSyncReady && !this.disposed && !this.scopeSaveBlocked && this.settings.autoSync && !this.authCompleting && !this.settings.accountSwitchPending && !(this.settings.pendingAuth && Date.now() - this.settings.pendingAuth.createdAt < 10 * 60 * 1e3) && !!(this.settings.refreshToken || this.settings.token && (!this.settings.tokenExpiresAt || this.settings.tokenExpiresAt > Date.now())) && !!((_a2 = this.settings.account) == null ? void 0 : _a2.id) && (!this.settings.stateAccountId || this.settings.stateAccountId === this.settings.account.id) && this.settings.account.syncWritesAllowed !== false && (this.settings.syncAllFolders || this.settings.selectedFolders.length > 0);
+    return this.autoSyncReady && !this.disposed && !this.vaultResetting && !this.scopeSaveBlocked && this.settings.autoSync && !this.authCompleting && !this.settings.accountSwitchPending && !(this.settings.pendingAuth && Date.now() - this.settings.pendingAuth.createdAt < 10 * 60 * 1e3) && !!(this.settings.refreshToken || this.settings.token && (!this.settings.tokenExpiresAt || this.settings.tokenExpiresAt > Date.now())) && !!((_a2 = this.settings.account) == null ? void 0 : _a2.id) && (!this.settings.stateAccountId || this.settings.stateAccountId === this.settings.account.id) && this.settings.account.syncWritesAllowed !== false && (this.settings.syncAllFolders || this.settings.selectedFolders.length > 0);
   }
   automaticSync() {
     return this.autoSyncCoordinator || (this.autoSyncCoordinator = new AutoSyncCoordinator({
@@ -6208,6 +6367,7 @@ var NoteCloudPlugin = class extends h.Plugin {
   async beginWebAuth(action = "login") {
     var _a2;
     this.assertEntryReady();
+    if (this.vaultResetting) return void new h.Notice("\u8BF7\u5148\u5173\u95ED\u6E05\u7A7A\u4ED3\u5E93\u7684\u786E\u8BA4\u7A97\u53E3");
     if (this.syncing)
       return void new h.Notice("\u8BF7\u7B49\u5F53\u524D\u540C\u6B65\u5B8C\u6210\u540E\u518D\u64CD\u4F5C\u8D26\u53F7");
     const epoch = this.authEpoch || 0, websiteUrl = this.settings.websiteUrl;
@@ -6324,7 +6484,8 @@ var NoteCloudPlugin = class extends h.Plugin {
           (_b = this.digestCache) == null ? void 0 : _b.clear();
           (_c = this.dirtyPaths) == null ? void 0 : _c.clear();
           this.pendingChanges = true;
-          new h.Notice("\u670D\u52A1\u7AEF\u4ED3\u5E93\u5DF2\u91CD\u5EFA\u3002\u8BBE\u5907\u4E2D\u7684\u7B14\u8BB0\u5DF2\u4FDD\u7559\uFF0C\u4E0B\u6B21\u540C\u6B65\u4F1A\u91CD\u65B0\u4E0A\u4F20\uFF0C\u8BF7\u786E\u8BA4\u6240\u9009\u7B14\u8BB0\u603B\u91CF\u4E0D\u8D85\u8FC7\u5F53\u524D\u989D\u5EA6\u3002", 12e3);
+          this.configureAutoSync();
+          new h.Notice("\u670D\u52A1\u7AEF\u4ED3\u5E93\u5DF2\u6E05\u7A7A\u6216\u91CD\u5EFA\u3002\u672C\u5730\u7B14\u8BB0\u5DF2\u4FDD\u7559\uFF0C\u81EA\u52A8\u540C\u6B65\u5DF2\u6682\u505C\u3002\u8BF7\u5148\u68C0\u67E5\u540C\u6B65\u8303\u56F4\uFF0C\u518D\u624B\u52A8\u540C\u6B65\u6216\u91CD\u65B0\u5F00\u542F\u81EA\u52A8\u540C\u6B65\u3002", 12e3);
         }
         const changed = reset || JSON.stringify(this.settings.account) !== JSON.stringify(account);
         const resumed = ((_d = this.settings.account) == null ? void 0 : _d.syncWritesAllowed) === false && account.syncWritesAllowed === true;
@@ -6400,6 +6561,7 @@ var NoteCloudPlugin = class extends h.Plugin {
   }
   async logout() {
     var _a2, _b, _c;
+    if (this.vaultResetting) return void new h.Notice("\u8BF7\u5148\u5173\u95ED\u6E05\u7A7A\u4ED3\u5E93\u7684\u786E\u8BA4\u7A97\u53E3");
     if (this.syncing)
       return void new h.Notice("\u8BF7\u7B49\u5F53\u524D\u540C\u6B65\u5B8C\u6210\u540E\u518D\u9000\u51FA\u8D26\u53F7");
     this.authEpoch = (this.authEpoch || 0) + 1;
@@ -6618,6 +6780,10 @@ var NoteCloudPlugin = class extends h.Plugin {
   }
   async sync(t) {
     var _a2, _b;
+    if (this.vaultResetting) {
+      if (t) new h.Notice("\u6E05\u7A7A\u4ED3\u5E93\u786E\u8BA4\u671F\u95F4\u5DF2\u6682\u505C\u540C\u6B65\uFF0C\u8BF7\u5148\u5173\u95ED\u786E\u8BA4\u7A97\u53E3");
+      return;
+    }
     if (this.scopeSaveBlocked) {
       if (t) new h.Notice("\u540C\u6B65\u8303\u56F4\u5C1A\u672A\u6210\u529F\u4FDD\u5B58\uFF0C\u8BF7\u91CD\u65B0\u8C03\u6574\u6216\u4FDD\u5B58\u540C\u6B65\u8303\u56F4\u540E\u518D\u8BD5");
       return;
@@ -6899,6 +7065,10 @@ var NoteCloudSettingsTab = class extends h.PluginSettingTab {
     this.quotaSetting = quota;
     this.refreshAccountUI();
     new h.Setting(e).setName("\u7A7A\u95F4\u81EA\u52A8\u5237\u65B0").setDesc("\u6253\u5F00\u8BBE\u7F6E\u548C\u8FD4\u56DE Obsidian \u65F6\u5237\u65B0\uFF1B\u8BBE\u7F6E\u9875\u505C\u7559\u671F\u95F4\u7EA6 10 \u79D2\u66F4\u65B0\u4E00\u6B21\u3002").addButton((b) => b.setButtonText("\u5237\u65B0\u989D\u5EA6").onClick(() => void this.plugin.refreshAccount(true))).addButton((b) => b.setButtonText("\u505C\u6B62\u540C\u6B65").onClick(() => this.plugin.cancelSync()));
+    if (i) new h.Setting(e).setName("\u6E05\u7A7A\u4E91\u7AEF\u4ED3\u5E93").setDesc("\u6E05\u7A7A\u5F53\u524D\u8D26\u53F7\u7684\u670D\u52A1\u7AEF\u7B14\u8BB0\u3001\u9644\u4EF6\u3001\u5386\u53F2\u7248\u672C\u548C\u76F8\u5173\u5206\u4EAB\uFF1B\u4FDD\u7559\u8BBE\u5907\u672C\u5730\u7B14\u8BB0\u3002\u9700\u8981\u8F93\u5165\u786E\u8BA4\u6587\u5B57\uFF0C\u81EA\u52A8\u540C\u6B65\u4F1A\u6682\u505C\u3002").addButton((b) => {
+      b.setButtonText("\u6E05\u7A7A\u4E91\u7AEF\u4ED3\u5E93").onClick(() => openVaultReset(this.plugin));
+      b.buttonEl.addClass("mod-warning");
+    });
     e.createEl("h3", { text: "\u8D26\u6237" });
     let accountActions = new h.Setting(e).setName(i ? `${i.displayName || i.phone || "\u5DF2\u767B\u5F55"}${i.customerStage === "early" ? " \xB7 \u65E9\u671F\u7528\u6237" : ""}` : "\u5C1A\u672A\u767B\u5F55").setDesc("\u767B\u5F55\u3001\u6CE8\u518C\u3001\u5207\u6362\u8D26\u53F7\u548C\u5FD8\u8BB0\u5BC6\u7801\u5747\u5728 NoteCloud \u7F51\u7AD9\u5B89\u5168\u5B8C\u6210\uFF0C\u63D2\u4EF6\u4E0D\u4FDD\u5B58\u5BC6\u7801");
     {

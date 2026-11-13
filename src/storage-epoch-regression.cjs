@@ -6,7 +6,7 @@ let checks=0;const equal=(a,b)=>{assert.deepEqual(a,b);checks++;};
 (async()=>{
   const settings={state:{'note.md':{hash:'old',remoteRevision:'old'}},lastSyncAt:'before'};
   equal(reconcileStorageEpoch(settings,{storageEpoch:0}),false);equal(settings.state['note.md'].hash,'old');
-  equal(reconcileStorageEpoch(settings,{storageEpoch:1}),true);equal(Object.keys(settings.state),[]);equal(settings.lastSyncAt,'');
+  equal(reconcileStorageEpoch(settings,{storageEpoch:1}),true);equal(Object.keys(settings.state),[]);equal(settings.lastSyncAt,'');equal(settings.autoSync,false);
   equal(reconcileStorageEpoch(settings,{storageEpoch:1}),false);assert.throws(()=>reconcileStorageEpoch(settings,{storageEpoch:0}));checks++;
   assert.throws(()=>reconcileStorageEpoch(settings,{storageEpoch:-1}));checks++;assert.throws(()=>reconcileStorageEpoch(settings,{storageEpoch:'2'}));checks++;
   // Run the real compiled plugin against a memory vault. A reset refresh may
